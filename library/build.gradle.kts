@@ -48,6 +48,9 @@ kotlin {
 
             //For icons
             implementation(libs.material.icons.extended)
+
+            //System back handling during a tour
+            implementation(libs.navigationevent.compose)
         }
 
         commonTest.dependencies {

@@ -5,9 +5,11 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,53 +24,86 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.geometry.toRect
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-
-/**
- * Texts the overlay shows by itself. Defaults are English, pass localized ones to
- * [TapTargetOverlay] (e.g. resolved via `stringResource` at the call site).
- */
-data class TourStrings(
-    val tapHighlighted: String = "Tap the highlighted area to continue",
-    val tapAnywhere: String = "Tap anywhere to continue",
-    val continueButton: String = "Continue",
-)
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 /** Default headline text for a step's bubble. */
 @Composable
@@ -102,29 +137,64 @@ fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: Text
  * - Returns immediately when the tour is finished ([TapTargetController.isActive] == false).
  * - Draws nothing for the current frame when the target composable is not yet laid out
  *   (e.g. while navigation is in progress).
- * - Punches a rounded hole in the scrim around the target bounds.
+ * - Punches a hole in the scrim around the target bounds.
  * - Shows the step's content bubble just below (or above) the spotlight hole.
- * - Advances when the highlighted box is tapped (or anywhere, if the step allows it).
+ * - Advances when the highlighted box is tapped (or anywhere, if the step allows it), and gives
+ *   feedback for taps next to the target ([WrongTapFeedback]).
+ * - Handles system back ([TourSettings.backBehavior]) and the keyboard
+ *   ([TourSettings.keyboardNavigation]) while a blocking step shows.
+ *
+ * @param strings         Built-in texts, see [TourStrings].
+ * @param skipButton      Optional skip button slot, see [TourSkipButton]. Null hides the button.
+ * @param continueButton  Optional Continue button of free-roam steps. Null: a material3 [Button].
  */
 @Composable
 fun TapTargetOverlay(
     controller: TapTargetController,
     strings: TourStrings = TourStrings(),
     skipButton: (@Composable (onSkip: () -> Unit) -> Unit)? = null,
+    continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)? = null,
 ) {
+    // Composed before the early return, so the handler stays registered across steps
+    TourBackHandler(controller)
+
     if (!controller.isActive) return
 
     LaunchedEffect(controller.currentIndex) {
-        val targetVisible = controller.ensureCurrentStepVisible()
-        //Effect gets cancelled when the step changes meanwhile, so this only skips the stuck step
-        if (!targetVisible && controller.tourSettings.skipMissingTargets) controller.next()
+        //Effect gets cancelled when the step changes meanwhile, so this only handles the stuck step
+        if (controller.ensureCurrentStepVisible()) {
+            controller.notifyStepShown()
+        } else {
+            controller.handleMissingTarget()
+        }
     }
 
     val step = controller.currentStep ?: return
+    val settings = controller.tourSettings
+
+    val focusRequester = remember { FocusRequester() }
+    val keyboardEnabled = settings.keyboardNavigation && step.isBlocking
+    LaunchedEffect(controller.currentIndex, keyboardEnabled) {
+        // Fails silently when the window cannot take focus (e.g. while it is in the background)
+        if (keyboardEnabled) runCatching { focusRequester.requestFocus() }
+    }
 
     //Plain Box without pointer input - taps still reach the app during free-roam steps
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        TourStepLayer(controller, step, strings)
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (keyboardEnabled) {
+                    Modifier
+                        .focusRequester(focusRequester)
+                        .onKeyEvent { event -> event.type == KeyEventType.KeyDown && controller.handleKey(event.key) }
+                        .focusable()
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+        TourStepLayer(controller, step, strings, continueButton)
 
         if (skipButton != null) {
             val target = controller.currentTarget
@@ -145,13 +215,13 @@ fun TapTargetOverlay(
 }
 
 /**
- * Default skip button for [TapTargetOverlay]'s `skipButton` slot:
+ * Default skip button for the `skipButton` slot of [TapTargetHost]:
  *
  * ```kotlin
- * TapTargetOverlay(
+ * TapTargetHost(
  *     controller = controller,
  *     skipButton = { onSkip -> TourSkipButton(stringResource(Res.string.skip), onSkip) }
- * )
+ * ) { ... }
  * ```
  */
 @Composable
@@ -159,6 +229,33 @@ fun TourSkipButton(text: String, onSkip: () -> Unit, modifier: Modifier = Modifi
     FilledTonalButton(onClick = onSkip, modifier = modifier) {
         Text(text)
     }
+}
+
+/** Enter / Space / Right arrow continue, Left arrow goes back, Escape skips. */
+private fun TapTargetController.handleKey(key: Key): Boolean {
+    when (key) {
+        Key.Enter, Key.NumPadEnter, Key.Spacebar, Key.DirectionRight -> next()
+        Key.DirectionLeft -> previous()
+        Key.Escape -> skip()
+        else -> return false
+    }
+    return true
+}
+
+@Composable
+private fun TourBackHandler(controller: TapTargetController) {
+    val behavior = controller.tourSettings.backBehavior
+    NavigationBackHandler(
+        state = rememberNavigationEventState(currentInfo = NavigationEventInfo.None),
+        isBackEnabled = controller.isBlocking && behavior != TourBackBehavior.PassThrough,
+        onBackCompleted = {
+            when (behavior) {
+                TourBackBehavior.PreviousStep -> controller.previous()
+                TourBackBehavior.SkipTour -> controller.skip()
+                TourBackBehavior.Block, TourBackBehavior.PassThrough -> Unit
+            }
+        },
+    )
 }
 
 /** Puts the skip button in the half of the screen opposite to the spotlight / free-roam bar. */
@@ -171,36 +268,138 @@ private fun skipButtonAlignment(step: TourStep, target: TargetInfo?, screenHeigh
     }
 
 @Composable
-private fun TourStepLayer(controller: TapTargetController, step: TourStep, strings: TourStrings) {
+private fun TourStepLayer(
+    controller: TapTargetController,
+    step: TourStep,
+    strings: TourStrings,
+    continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)?,
+) {
     // Free-roam: non-blocking hint bar, user explores freely, advances via button only.
     if (step.freeRoamPosition != null) {
         FreeRoamTourBar(
+            controller = controller,
             step = step,
             position = step.freeRoamPosition,
+            strings = strings,
             continueText = step.continueButtonText?.invoke() ?: strings.continueButton,
-            onContinue = { controller.next() },
+            continueButton = continueButton,
         )
         return
     }
 
     // Centered: no spotlight target, full block, tap-anywhere advances.
     if (step.id == null) {
-        CenteredTourStep(step, strings, onTap = { controller.next() })
+        CenteredTourStep(controller, step, strings)
         return
     }
 
+    SpotlightTourStep(controller, step, strings)
+}
+
+/** Animations of the feedback for taps next to the target. Created once per step. */
+@Stable
+private class WrongTapState {
+    var position by mutableStateOf(Offset.Unspecified)
+        private set
+    var guideStart by mutableStateOf(Offset.Unspecified)
+        private set
+    private var count = 0
+
+    /** 0 = just tapped, 1 = gone. */
+    val indicator = Animatable(1f)
+    val targetPulse = Animatable(1f)
+    val guide = Animatable(1f)
+
+    /** Horizontal offset of the bubble in px. */
+    val shake = Animatable(0f)
+
+    /** 1 = hint fully in the feedback color, 0 = normal. */
+    val flash = Animatable(0f)
+
+    fun trigger(position: Offset, feedback: WrongTapFeedback, scope: CoroutineScope, shakePx: Float) {
+        this.position = position
+        count++
+        if (feedback.tapIndicator) scope.launch {
+            indicator.snapTo(0f)
+            indicator.animateTo(1f, tween(550))
+        }
+        if (feedback.pulseTarget) scope.launch {
+            targetPulse.snapTo(0f)
+            targetPulse.animateTo(1f, tween(400, easing = FastOutSlowInEasing))
+        }
+        if (feedback.shakeBubble) scope.launch {
+            shake.snapTo(0f)
+            shake.animateTo(
+                targetValue = 0f,
+                animationSpec = keyframes {
+                    durationMillis = 400
+                    shakePx at 50
+                    -shakePx at 120
+                    shakePx * 0.6f at 190
+                    -shakePx * 0.3f at 260
+                },
+            )
+        }
+        if (feedback.flashHint) scope.launch {
+            flash.snapTo(1f)
+            flash.animateTo(0f, tween(1200))
+        }
+        if (feedback.showGuideAfter > 0 && count % feedback.showGuideAfter == 0) {
+            guideStart = position
+            scope.launch {
+                guide.snapTo(0f)
+                guide.animateTo(1f, tween(1100, easing = FastOutSlowInEasing))
+            }
+        }
+    }
+}
+
+/** Bounds of the spotlight hole: the padded target, or the square around the circle. */
+private fun spotlightBounds(target: Rect, shape: SpotlightShape, paddingPx: Float): Rect = when (shape) {
+    SpotlightShape.RoundedRect -> target.inflate(paddingPx)
+    SpotlightShape.Circle -> {
+        val radius = max(target.width, target.height) / 2f + paddingPx
+        Rect(center = target.center, radius = radius)
+    }
+}
+
+private fun spotlightPath(bounds: Rect, shape: SpotlightShape, cornerRadiusPx: Float): Path = Path().apply {
+    when (shape) {
+        SpotlightShape.RoundedRect -> addRoundRect(RoundRect(rect = bounds, cornerRadius = CornerRadius(cornerRadiusPx)))
+        SpotlightShape.Circle -> addOval(bounds)
+    }
+}
+
+@Composable
+private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, strings: TourStrings) {
     val target = controller.currentTarget ?: return   // not laid out yet → draw nothing
 
-    var bubbleSize by remember(step.id) { mutableStateOf(IntSize.Zero) }
+    val settings = controller.tourSettings
+    val feedback = settings.wrongTapFeedback
+    val bubbleStyle = settings.bubble
+    val shape = controller.spotlightShapeOf(step)
+    val passThrough = controller.passesTapToTarget(step)
 
-    // Wrong-tap feedback: a one-shot pulse layered on top of the ambient ring animation.
-    // 1f = settled/idle, 0f = just triggered — decays back to 1f so the boost fades out.
-    var wrongTapCount by remember(step.id) { mutableIntStateOf(0) }
-    val wrongTapPulse = remember(step.id) { Animatable(1f) }
-    LaunchedEffect(wrongTapCount) {
-        if (wrongTapCount > 0) {
-            wrongTapPulse.snapTo(0f)
-            wrongTapPulse.animateTo(1f, tween(400, easing = FastOutSlowInEasing))
+    val highlightColor = settings.highlightColor.takeOrElse { MaterialTheme.colorScheme.primary }
+    val feedbackColor = feedback.color.takeOrElse { MaterialTheme.colorScheme.error }
+    val scrimColor = step.backgroundColor.takeOrElse { settings.scrimColor }
+
+    val density = LocalDensity.current
+    val spotlight = spotlightBounds(target.bounds, shape, with(density) { settings.iconPadding.toPx() })
+
+    var bubbleSize by remember(step) { mutableStateOf(IntSize.Zero) }
+    val wrongTap = remember(step) { WrongTapState() }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val shakePx = with(density) { 10.dp.toPx() }
+
+    val onTap: (Offset) -> Unit = { position ->
+        if (!step.requireExactTap || spotlight.contains(position)) {
+            controller.next()
+        } else {
+            controller.reportWrongTap(position)
+            wrongTap.trigger(position, feedback, scope, shakePx)
+            if (feedback.haptic) haptic.performHapticFeedback(HapticFeedbackType.Reject)
         }
     }
 
@@ -225,84 +424,86 @@ private fun TourStepLayer(controller: TapTargetController, step: TourStep, strin
         ),
         label = "tapTargetSpotlightPulse",
     )
-    val ringColor = MaterialTheme.colorScheme.primary
-
-    val density = LocalDensity.current
-    val iconPaddingPx = with(density) { controller.tourSettings.iconPadding.toPx() }
-    val highlightedBounds = target.bounds.inflate(iconPaddingPx)
 
     // Taps are handled on the parent, not the scrim: the bubble is a sibling above the scrim
-    // and its Surface would swallow a tap on it, so "tap anywhere" would not advance there
+    // and its Surface would swallow a tap on it, so "tap anywhere" would not advance there.
+    // Pass-through steps leave the hole free instead (see TapCatchersAround).
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .pointerInput(step.id, highlightedBounds) {
-                detectTapGestures { offset ->
-                    if (!step.requireExactTap || highlightedBounds.contains(offset)) {
-                        controller.next()
-                    } else {
-                        wrongTapCount++
-                    }
-                }
-            }
+            .then(
+                if (passThrough) Modifier
+                else Modifier.pointerInput(step, spotlight) { detectTapGestures(onTap = onTap) }
+            )
     ) {
         val screenWidthPx = with(density) { maxWidth.toPx() }
         val screenHeightPx = with(density) { maxHeight.toPx() }
         val edgePaddingPx = with(density) { 16.dp.toPx() }
-        val cornerRadiusPx = with(density) { controller.tourSettings.cornerRadius.toPx() }
+        val gapPx = with(density) { bubbleStyle.gap.toPx() }
+        val cornerRadiusPx = with(density) { settings.cornerRadius.toPx() }
         val ringInflatePx = with(density) { 10.dp.toPx() }
         val ringStrokePx = with(density) { 2.dp.toPx() }
         val outlineStrokePx = with(density) { 3.dp.toPx() }
         val spotlightInflatePx = with(density) { 6.dp.toPx() }
+        val indicatorStartPx = with(density) { 6.dp.toPx() }
+        val indicatorEndPx = with(density) { 30.dp.toPx() }
+        val crossPx = with(density) { 7.dp.toPx() }
 
         // ── Scrim with punched-out spotlight ─────────────────────────
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val pulse = spotlightPulse(spotlightPulseProgress, spotlightInflatePx)
-            val spotlight = highlightedBounds.inflate(pulse.inflatePx)
-            val spotlightCorner = CornerRadius(cornerRadiusPx + pulse.inflatePx, cornerRadiusPx + pulse.inflatePx)
+            val breathing = if (settings.spotlightBreathing) spotlightPulseProgress else 0f
+            val pulse = spotlightPulse(breathing, spotlightInflatePx)
+            val hole = spotlightPath(spotlight.inflate(pulse.inflatePx), shape, cornerRadiusPx + pulse.inflatePx)
             val scrim = Path().apply { addRect(size.toRect()) }
-            val hole = Path().apply { addRoundRect(RoundRect(rect = spotlight, cornerRadius = spotlightCorner)) }
-            val diff  = Path().apply { op(scrim, hole, PathOperation.Difference) }
-            drawPath(diff, color = step.backgroundColor)
-            drawRoundRect(
-                color = ringColor,
-                topLeft = spotlight.topLeft,
-                size = spotlight.size,
-                cornerRadius = spotlightCorner,
-                alpha = pulse.fillAlpha,
-            )
-            drawRoundRect(
-                color = ringColor,
-                topLeft = spotlight.topLeft,
-                size = spotlight.size,
-                cornerRadius = spotlightCorner,
-                style = Stroke(width = outlineStrokePx),
-                alpha = pulse.outlineAlpha,
-            )
+            drawPath(Path().apply { op(scrim, hole, PathOperation.Difference) }, color = scrimColor)
+            drawPath(hole, color = highlightColor, alpha = pulse.fillAlpha)
+            drawPath(hole, color = highlightColor, alpha = pulse.outlineAlpha, style = Stroke(width = outlineStrokePx))
 
             // Draw a pulsing ring around the hole to signal "tap exactly here".
-            if (step.tapHint == TapHint.EXACT) {
+            if (settings.showTapRing && step.tapHint == TapHint.EXACT) {
                 // wrongTapBoost decays from 1 (just tapped wrong) to 0 (settled) over ~400ms.
-                val wrongTapBoost = 1f - wrongTapPulse.value
+                val wrongTapBoost = 1f - wrongTap.targetPulse.value
                 val inflate = ringInflatePx * ringProgress + ringInflatePx * 1.5f * wrongTapBoost
                 val alpha = (0.8f * (1f - ringProgress)) + (0.6f * wrongTapBoost)
-                val ringBounds = highlightedBounds.inflate(inflate)
-                drawRoundRect(
-                    color = ringColor,
-                    topLeft = ringBounds.topLeft,
-                    size = ringBounds.size,
-                    cornerRadius = CornerRadius(cornerRadiusPx + inflate, cornerRadiusPx + inflate),
-                    style = Stroke(width = ringStrokePx + ringStrokePx * wrongTapBoost),
+                drawPath(
+                    path = spotlightPath(spotlight.inflate(inflate), shape, cornerRadiusPx + inflate),
+                    color = highlightColor,
                     alpha = alpha.coerceIn(0f, 1f),
+                    style = Stroke(width = ringStrokePx + ringStrokePx * wrongTapBoost),
                 )
+            }
+
+            // Wrong-tap indicator: an expanding circle with a cross where the user tapped
+            val indicatorProgress = wrongTap.indicator.value
+            val tapPosition = wrongTap.position
+            if (indicatorProgress < 1f && tapPosition.isSpecified) {
+                val alpha = 1f - indicatorProgress
+                val radius = indicatorStartPx + (indicatorEndPx - indicatorStartPx) * indicatorProgress
+                drawCircle(feedbackColor, radius = radius, center = tapPosition, alpha = alpha, style = Stroke(outlineStrokePx))
+                drawLine(feedbackColor, tapPosition + Offset(-crossPx, -crossPx), tapPosition + Offset(crossPx, crossPx), outlineStrokePx, StrokeCap.Round, alpha = alpha)
+                drawLine(feedbackColor, tapPosition + Offset(-crossPx, crossPx), tapPosition + Offset(crossPx, -crossPx), outlineStrokePx, StrokeCap.Round, alpha = alpha)
             }
         }
 
+        if (passThrough) TapCatchersAround(spotlight, screenWidthPx, screenHeightPx, density, onTap)
+
+        // Screen readers: the highlighted area as a button (semantics only, so pass-through taps still reach the app)
+        Box(
+            Modifier
+                .rectPlacement(spotlight, density)
+                .semantics {
+                    role = Role.Button
+                    contentDescription = strings.highlightedTarget
+                    onClick(label = strings.highlightedTarget) { controller.next(); true }
+                }
+        )
+
         // ── Info bubble ──────────────────────────────────────────────
-        if (step.content != null || step.tapHint != null) {
+        val showHint = bubbleStyle.showTapHint && step.tapHint != null
+        if (step.content != null || showHint || bubbleStyle.showProgress) {
 
             // Horizontal: keep within [edgePadding, screenWidth - bubbleWidth - edgePadding]
-            val clampedX = target.bounds.left
+            val clampedX = spotlight.left
                 .coerceIn(
                     edgePaddingPx,
                     (screenWidthPx - bubbleSize.width - edgePaddingPx).coerceAtLeast(edgePaddingPx)
@@ -310,8 +511,8 @@ private fun TourStepLayer(controller: TapTargetController, step: TourStep, strin
                 .toInt()
 
             // Vertical: prefer below the spotlight; flip above if it would clip the bottom
-            val belowY = target.bounds.bottom + edgePaddingPx
-            val aboveY = target.bounds.top   - edgePaddingPx - bubbleSize.height
+            val belowY = spotlight.bottom + gapPx
+            val aboveY = spotlight.top - gapPx - bubbleSize.height
 
             val clampedY = if (belowY + bubbleSize.height <= screenHeightPx) {
                 belowY.toInt()
@@ -323,59 +524,191 @@ private fun TourStepLayer(controller: TapTargetController, step: TourStep, strin
             Box(
                 modifier = Modifier
                     .offset { IntOffset(clampedX, clampedY) }
-                    .widthIn(max = 260.dp)
+                    .graphicsLayer { translationX = wrongTap.shake.value }
+                    .widthIn(max = bubbleStyle.maxWidth)
                     .onGloballyPositioned { bubbleSize = it.size }
+                    .then(
+                        // With a free hole the parent has no tap handling, so the bubble needs its own
+                        if (passThrough) {
+                            Modifier.pointerInput(step, clampedX, clampedY) {
+                                detectTapGestures { onTap(it + Offset(clampedX.toFloat(), clampedY.toFloat())) }
+                            }
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 4.dp,
+                TourCard(
+                    style = bubbleStyle,
+                    spacing = 4.dp,
+                    modifier = Modifier.tourStepSemantics(controller, strings),
                 ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        step.content?.invoke(this)
-                        step.tapHint?.let { TapHintRow(it, strings, hasContentAbove = step.content != null) }
+                    StepProgress(controller, strings, bubbleStyle)
+                    step.content?.invoke(this)
+                    if (showHint) {
+                        TapHintRow(
+                            hint = step.tapHint,
+                            strings = strings,
+                            style = bubbleStyle,
+                            hasContentAbove = step.content != null,
+                            flash = { wrongTap.flash.value },
+                            flashColor = feedbackColor,
+                        )
                     }
                 }
             }
         }
+
+        // Guide hand: moves from the last wrong tap to the target
+        if (feedback.showGuideAfter > 0 && wrongTap.guideStart.isSpecified) {
+            val handSize = 40.dp
+            val handSizePx = with(density) { handSize.toPx() }
+            Icon(
+                imageVector = Icons.Filled.TouchApp,
+                contentDescription = null,
+                tint = highlightColor,
+                modifier = Modifier
+                    .offset {
+                        val position = lerp(wrongTap.guideStart, spotlight.center, wrongTap.guide.value)
+                        // The finger tip sits at the top center of the icon
+                        IntOffset((position.x - handSizePx / 2f).roundToInt(), (position.y - handSizePx / 6f).roundToInt())
+                    }
+                    .size(handSize)
+                    .graphicsLayer {
+                        val progress = wrongTap.guide.value
+                        alpha = if (progress >= 1f) 0f else 1f - ((progress - 0.8f) / 0.2f).coerceIn(0f, 1f)
+                    },
+            )
+        }
     }
+}
+
+/** Four tap areas around [hole], so the hole itself passes taps to the app below. */
+@Composable
+private fun TapCatchersAround(
+    hole: Rect,
+    screenWidthPx: Float,
+    screenHeightPx: Float,
+    density: Density,
+    onTap: (Offset) -> Unit,
+) {
+    val top = hole.top.coerceIn(0f, screenHeightPx)
+    val bottom = hole.bottom.coerceIn(0f, screenHeightPx)
+    val left = hole.left.coerceIn(0f, screenWidthPx)
+    val right = hole.right.coerceIn(0f, screenWidthPx)
+    val areas = listOf(
+        Rect(0f, 0f, screenWidthPx, top),
+        Rect(0f, bottom, screenWidthPx, screenHeightPx),
+        Rect(0f, top, left, bottom),
+        Rect(right, top, screenWidthPx, bottom),
+    )
+    for (area in areas) {
+        if (area.width <= 0f || area.height <= 0f) continue
+        Box(
+            Modifier
+                .rectPlacement(area, density)
+                .pointerInput(area) { detectTapGestures { onTap(it + area.topLeft) } }
+        )
+    }
+}
+
+/** Places a box exactly over [rect] (root coordinates, the overlay fills the root). */
+private fun Modifier.rectPlacement(rect: Rect, density: Density): Modifier =
+    offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
+        .size(with(density) { DpSize(rect.width.toDp(), rect.height.toDp()) })
+
+/** Announces each new step to screen readers and offers continue / back / skip as actions. */
+private fun Modifier.tourStepSemantics(controller: TapTargetController, strings: TourStrings): Modifier =
+    semantics {
+        liveRegion = LiveRegionMode.Polite
+        customActions = buildList {
+            add(CustomAccessibilityAction(strings.continueButton) { controller.next(); true })
+            if (controller.currentIndex > 0) {
+                add(CustomAccessibilityAction(strings.previousStep) { controller.previous(); true })
+            }
+            add(CustomAccessibilityAction(strings.skipTour) { controller.skip(); true })
+        }
+    }
+
+/** Surface of bubbles, cards and the free-roam bar, styled by [BubbleStyle]. */
+@Composable
+private fun TourCard(
+    style: BubbleStyle,
+    spacing: Dp,
+    modifier: Modifier = Modifier,
+    horizontalAlignment: Alignment.Horizontal = Alignment.Start,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val containerColor = style.containerColor.takeOrElse { MaterialTheme.colorScheme.surface }
+    val contentColor = style.contentColor.takeOrElse { contentColorFor(containerColor) }
+    Surface(
+        modifier = modifier,
+        shape = style.shape,
+        color = containerColor,
+        contentColor = contentColor,
+        shadowElevation = style.shadowElevation,
+    ) {
+        Column(
+            modifier = Modifier.padding(style.contentPadding),
+            horizontalAlignment = horizontalAlignment,
+            verticalArrangement = Arrangement.spacedBy(spacing),
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun StepProgress(controller: TapTargetController, strings: TourStrings, style: BubbleStyle) {
+    if (!style.showProgress) return
+    Text(
+        text = strings.stepProgress(controller.currentIndex + 1, controller.stepCount),
+        style = MaterialTheme.typography.labelSmall,
+        color = LocalContentColor.current.copy(alpha = 0.7f),
+    )
 }
 
 /**
  * Renders a step with no spotlight — full scrim, no punched hole, bubble centered on screen.
  */
 @Composable
-private fun CenteredTourStep(step: TourStep, strings: TourStrings, onTap: () -> Unit) {
+private fun CenteredTourStep(controller: TapTargetController, step: TourStep, strings: TourStrings) {
+    val settings = controller.tourSettings
+    val bubbleStyle = settings.bubble
+    val scrimColor = step.backgroundColor.takeOrElse { settings.scrimColor }
+    val showHint = bubbleStyle.showTapHint && step.tapHint != null
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(step.id) {
-                detectTapGestures { onTap() }
+            .pointerInput(step) {
+                detectTapGestures { controller.next() }
             }
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            drawRect(color = step.backgroundColor)
+            drawRect(color = scrimColor)
         }
 
-        if (step.content != null || step.tapHint != null) {
-            Surface(
+        if (step.content != null || showHint || bubbleStyle.showProgress) {
+            TourCard(
+                style = bubbleStyle,
+                spacing = 8.dp,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .widthIn(max = 280.dp)
-                    .padding(24.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 4.dp,
+                    .padding(24.dp)
+                    .widthIn(max = bubbleStyle.centeredMaxWidth)
+                    .tourStepSemantics(controller, strings),
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    step.content?.invoke(this)
-                    step.tapHint?.let { TapHintRow(it, strings, hasContentAbove = step.content != null) }
+                StepProgress(controller, strings, bubbleStyle)
+                step.content?.invoke(this)
+                if (showHint) {
+                    TapHintRow(
+                        hint = step.tapHint,
+                        strings = strings,
+                        style = bubbleStyle,
+                        hasContentAbove = step.content != null,
+                        flash = { 0f },
+                        flashColor = Color.Unspecified,
+                    )
                 }
             }
         }
@@ -385,17 +718,45 @@ private fun CenteredTourStep(step: TourStep, strings: TourStrings, onTap: () -> 
 /**
  * Small icon + label row explaining whether this step expects a tap on the highlighted
  * target ([TapHint.EXACT]) or a tap anywhere on screen ([TapHint.ANYWHERE]).
+ *
+ * [flash] (0..1) tints the row in [flashColor] and grows it a little after a wrong tap. It is read
+ * in the draw phase only, so the animation does not recompose.
  */
 @Composable
-private fun ColumnScope.TapHintRow(hint: TapHint, strings: TourStrings, hasContentAbove: Boolean) {
+private fun ColumnScope.TapHintRow(
+    hint: TapHint?,
+    strings: TourStrings,
+    style: BubbleStyle,
+    hasContentAbove: Boolean,
+    flash: () -> Float,
+    flashColor: Color,
+) {
+    if (hint == null) return
     if (hasContentAbove) {
         Spacer(Modifier.height(4.dp))
         HorizontalDivider()
         Spacer(Modifier.height(4.dp))
     }
-    Row {
+    Row(
+        modifier = Modifier
+            .graphicsLayer {
+                val grow = 1f + 0.06f * flash()
+                scaleX = grow
+                scaleY = grow
+                transformOrigin = TransformOrigin(0f, 0.5f)
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .drawWithContent {
+                drawContent()
+                val amount = flash()
+                if (amount > 0f && flashColor.isSpecified) {
+                    drawRect(flashColor, alpha = amount, blendMode = BlendMode.SrcAtop)
+                }
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Icon(
-            imageVector = Icons.Default.TouchApp,
+            imageVector = style.tapHintIcon,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
             tint = MaterialTheme.colorScheme.primary,
@@ -417,11 +778,14 @@ private fun ColumnScope.TapHintRow(hint: TapHint, strings: TourStrings, hasConte
  */
 @Composable
 private fun FreeRoamTourBar(
+    controller: TapTargetController,
     step: TourStep,
     position: FreeRoamBarPosition,
+    strings: TourStrings,
     continueText: String,
-    onContinue: () -> Unit,
+    continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)?,
 ) {
+    val bubbleStyle = controller.tourSettings.bubble
     val alignment = when (position) {
         FreeRoamBarPosition.Top    -> Alignment.TopCenter
         FreeRoamBarPosition.Center -> Alignment.Center
@@ -433,26 +797,27 @@ private fun FreeRoamTourBar(
     } else {
         Modifier.fillMaxWidth()
     }
+    val onContinue = { controller.next() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(16.dp),
         contentAlignment = alignment,
     ) {
-        Surface(
-            modifier = widthModifier,
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 6.dp,
+        TourCard(
+            style = bubbleStyle,
+            spacing = 4.dp,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = widthModifier.tourStepSemantics(controller, strings),
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                step.content?.invoke(this)
-                Spacer(Modifier.height(8.dp))
+            StepProgress(controller, strings, bubbleStyle)
+            step.content?.invoke(this)
+            Spacer(Modifier.height(8.dp))
+            if (continueButton != null) {
+                continueButton(continueText, onContinue)
+            } else {
                 Button(onClick = onContinue) {
                     Text(continueText)
                 }

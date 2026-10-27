@@ -1,6 +1,7 @@
 package io.github.lerchenflo.taptarget
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -9,9 +10,8 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
@@ -22,15 +22,6 @@ import kotlin.time.Duration.Companion.milliseconds
 
 /** Stores the screen-space bounding box of a registered target composable. */
 data class TargetInfo(val bounds: Rect)
-
-data class TourSettings(
-    /** Padding between the target bounds and the spotlight hole. */
-    val iconPadding: Dp = 4.dp,
-    val cornerRadius: Dp = 16.dp,
-    /** Skip a step whose target never shows up (e.g. a button hidden by state) instead of
-     *  leaving the tour stuck on a step without overlay. */
-    val skipMissingTargets: Boolean = true,
-)
 
 /**
  * Single source of truth for the active onboarding tour.
@@ -49,6 +40,12 @@ data class TourSettings(
  *                            different arguments count as the same screen).
  * @param onFinished          Invoked when the tour completes (all steps shown) or
  *                            is skipped. Persist "onboarding_seen" here.
+ * @param tourSettings        Behaviour and look, see [TourSettings]. Can be changed later.
+ * @param onStepShown         A step became visible (its target was found). For analytics.
+ * @param onSkipped           The tour was skipped on the step with this index (before [onFinished]).
+ * @param onWrongTap          A tap next to the target on a step that needs an exact tap.
+ *                            The position is in root coordinates.
+ * @param onTargetMissing     A step's target did not appear within [TourSettings.targetTimeout].
  */
 class TapTargetController(
     private val tour: TapTargetTour,
@@ -57,8 +54,18 @@ class TapTargetController(
     private val isMatchingRoute: (targetRoute: Any, activeRoute: Any) -> Boolean =
         { target, active -> target::class == active::class },
     private val onFinished: () -> Unit = {},
-    val tourSettings: TourSettings = TourSettings(),
+    tourSettings: TourSettings = TourSettings(),
+    private val onStepShown: (index: Int, step: TourStep) -> Unit = { _, _ -> },
+    private val onSkipped: (index: Int) -> Unit = {},
+    private val onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> },
+    private val onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> },
 ) {
+    /** Behaviour and look of the tour. Changes apply at once, also while the tour runs. */
+    var tourSettings by mutableStateOf(tourSettings)
+
+    // Direction of the last move, so a missing target is skipped the way the user is going
+    private var movingForward = true
+
     // Targets registered by Modifier.tapTarget — keyed by step id.
     private val targets = mutableStateMapOf<String, TargetInfo>()
 
@@ -78,6 +85,12 @@ class TapTargetController(
 
     /** True while tour is active and there are still steps left to show. */
     val isActive: Boolean get() = active && currentIndex < tour.steps.size
+
+    /** Number of steps in the tour. */
+    val stepCount: Int get() = tour.steps.size
+
+    /** True while a step shows that blocks the app (every step except free-roam steps). */
+    val isBlocking: Boolean get() = currentStep?.isBlocking == true
 
     // ── Target registration ──────────────────────────────────────
 
@@ -99,6 +112,7 @@ class TapTargetController(
 
     /** Resets the tour to the first step and activates it. */
     fun start() {
+        movingForward = true
         currentIndex = 0
         active = true
     }
@@ -108,6 +122,7 @@ class TapTargetController(
      * Bound to the user's tap gesture on the overlay.
      */
     fun next() {
+        movingForward = true
         if (currentIndex < tour.steps.size) currentIndex++
         if (currentIndex >= tour.steps.size) {
             active = false
@@ -119,7 +134,24 @@ class TapTargetController(
      * Immediately ends the tour without showing the remaining steps.
      * Calls [onFinished] so persistence can happen in the same callback.
      */
+    /** Goes back one step. Does nothing on the first step or when the tour does not run. */
+    fun previous() {
+        if (!isActive || currentIndex == 0) return
+        movingForward = false
+        currentIndex--
+    }
+
+    /** Jumps to the step at [index] (clamped to the tour) and starts the tour if it does not run. */
+    fun goTo(index: Int) {
+        if (tour.steps.isEmpty()) return
+        val target = index.coerceIn(0, tour.steps.lastIndex)
+        movingForward = target >= currentIndex
+        currentIndex = target
+        active = true
+    }
+
     fun skip() {
+        if (isActive) onSkipped(currentIndex)
         currentIndex = tour.steps.size
         active = false
         onFinished()
@@ -130,11 +162,12 @@ class TapTargetController(
      * the target composable is visible before the overlay draws it.
      *
      * 1. If the step declares a [TourStep.route] and it differs from [currentRoute], triggers navigation.
-     * 2. Polls until the target registers itself (max [timeoutMs] ms).
+     * 2. Runs [TourStep.beforeShow].
+     * 3. Polls until the target registers itself (max [TourSettings.targetTimeout]).
      *
      * @return false if the step's target did not show up in time.
      */
-    internal suspend fun ensureCurrentStepVisible(timeoutMs: Long = 2000): Boolean {
+    internal suspend fun ensureCurrentStepVisible(): Boolean {
         val step = currentStep ?: return true
 
         val route = step.route
@@ -142,14 +175,46 @@ class TapTargetController(
         if (route != null && (activeRoute == null || !isMatchingRoute(route, activeRoute))) {
             onNavigateToRoute(route)
         }
+        step.beforeShow?.invoke()
 
         val id = step.id ?: return true   // no target to wait for
         if (targets.containsKey(id)) return true
 
-        withTimeoutOrNull(timeoutMs.milliseconds) {
+        withTimeoutOrNull(tourSettings.targetTimeout) {
             while (!targets.containsKey(id)) delay(16.milliseconds)
         }
         return targets.containsKey(id)
+    }
+
+    /** Overlay: the current step is on screen. */
+    internal fun notifyStepShown() {
+        currentStep?.let { onStepShown(currentIndex, it) }
+    }
+
+    /** Overlay: the current step's target never appeared. Skips it in the direction of the last move. */
+    internal fun handleMissingTarget() {
+        val id = currentStep?.id ?: return
+        onTargetMissing(currentIndex, id)
+        if (!tourSettings.skipMissingTargets) return
+        if (movingForward || currentIndex == 0) next() else previous()
+    }
+
+    /** Overlay: a tap next to the target on an exact-tap step. */
+    internal fun reportWrongTap(position: Offset) {
+        if (isActive) onWrongTap(currentIndex, position)
+    }
+
+    /** Whether a tap on the current target also reaches the real composable. */
+    internal fun passesTapToTarget(step: TourStep): Boolean =
+        step.passTapToTarget ?: tourSettings.passTapToTarget
+
+    internal fun spotlightShapeOf(step: TourStep): SpotlightShape =
+        step.spotlightShape ?: tourSettings.spotlightShape
+
+    /** [tapTarget]: the real composable with [id] was tapped. Advances on pass-through steps. */
+    internal fun onTargetTapped(id: String) {
+        val step = currentStep ?: return
+        if (step.id == id && passesTapToTarget(step)) next()
     }
 }
 
@@ -158,7 +223,8 @@ class TapTargetController(
  * whether the tour runs) across activity recreation and process death on Android.
  *
  * The callbacks may capture changing values: the controller always calls the latest ones.
- * [tour] and [tourSettings] are read once, when the controller is created.
+ * [tourSettings] is applied on every composition, so it can change while the tour runs.
+ * [tour] is read once, when the controller is created.
  *
  * ```kotlin
  * val tourController = rememberTapTargetController(
@@ -180,11 +246,19 @@ fun rememberTapTargetController(
         { target, active -> target::class == active::class },
     onFinished: () -> Unit = {},
     tourSettings: TourSettings = TourSettings(),
+    onStepShown: (index: Int, step: TourStep) -> Unit = { _, _ -> },
+    onSkipped: (index: Int) -> Unit = {},
+    onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> },
+    onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> },
 ): TapTargetController {
     val latestOnNavigateToRoute by rememberUpdatedState(onNavigateToRoute)
     val latestCurrentRoute by rememberUpdatedState(currentRoute)
     val latestIsMatchingRoute by rememberUpdatedState(isMatchingRoute)
     val latestOnFinished by rememberUpdatedState(onFinished)
+    val latestOnStepShown by rememberUpdatedState(onStepShown)
+    val latestOnSkipped by rememberUpdatedState(onSkipped)
+    val latestOnWrongTap by rememberUpdatedState(onWrongTap)
+    val latestOnTargetMissing by rememberUpdatedState(onTargetMissing)
 
     val createController = {
         TapTargetController(
@@ -194,10 +268,14 @@ fun rememberTapTargetController(
             isMatchingRoute = { target, active -> latestIsMatchingRoute(target, active) },
             onFinished = { latestOnFinished() },
             tourSettings = tourSettings,
+            onStepShown = { index, step -> latestOnStepShown(index, step) },
+            onSkipped = { index -> latestOnSkipped(index) },
+            onWrongTap = { index, position -> latestOnWrongTap(index, position) },
+            onTargetMissing = { index, id -> latestOnTargetMissing(index, id) },
         )
     }
 
-    return rememberSaveable(
+    val controller = rememberSaveable(
         saver = listSaver<TapTargetController, Any>(
             save = { controller -> listOf(controller.currentIndex, controller.active) },
             restore = { saved ->
@@ -208,6 +286,8 @@ fun rememberTapTargetController(
         ),
         init = createController,
     )
+    SideEffect { controller.tourSettings = tourSettings }
+    return controller
 }
 
 /**
