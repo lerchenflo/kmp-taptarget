@@ -40,6 +40,7 @@ TapTargetHost(controller = rememberTapTargetController(tour = myTour)) {
 - [Testing library changes in your app before a release](#testing-library-changes-in-your-app-before-a-release)
 - [Releasing a new version](#releasing-a-new-version)
 - [Guide for AI coding assistants](#guide-for-ai-coding-assistants)
+- [Changelog](#changelog)
 - [License](#license)
 
 ## Features
@@ -112,12 +113,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. Replace `<version>` with a tag from the
-[tags page](https://github.com/lerchenflo/kmp-taptarget/tags):
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.2`, see the
+[changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-taptarget/tags):
 
 ```toml
 [versions]
-kmpTaptarget = "<version>"
+kmpTaptarget = "1.0.2"
 
 [libraries]
 kmp-taptarget = { module = "com.github.lerchenflo.kmp-taptarget:kmp-taptarget", version.ref = "kmpTaptarget" }
@@ -699,13 +700,15 @@ Sync Gradle, and the app builds against your local changes. Remove the block bef
 2. Commit and push to `main`.
 3. Create a git tag with the new version and push it, for example:
    ```bash
-   git tag 1.0.1
-   git push origin 1.0.1
+   git tag 1.0.3
+   git push origin 1.0.3
    ```
 4. Open `https://jitpack.io/#lerchenflo/kmp-taptarget`, click **Get it** next to the tag, and wait
    for the build. JitPack also builds a tag the first time an app asks for it, but then that first
    Gradle sync waits for the build.
-5. Raise the version in the apps' `libs.versions.toml`.
+5. Add the version to the [changelog](#changelog) and update the version in the
+   [installation](#installation) section.
+6. Raise the version in the apps' `libs.versions.toml`.
 
 JitPack rewrites the Gradle module metadata and drops the classifier from every file name
 (`x-1.0.0-metadata.jar` becomes `x-1.0.0.jar`). `library/build.gradle.kts` therefore publishes the
@@ -792,6 +795,28 @@ enum class TourBackBehavior { PreviousStep, Block, SkipTour, PassThrough }
 enum class FreeRoamLeaveBehavior { Allow, ReturnToStepRoute, NextStep, SkipTour }
 enum class FreeRoamBarPosition { Top, Center, Bottom }
 ```
+
+## Changelog
+
+### 1.0.2
+- New `highlightStep`: points at an element only to inform. Calm dashed outline, lightly dimmed
+  cutout, info icon and a "Got it" button. A tap on the element does nothing, a tap anywhere else
+  continues.
+- New settings: `dashedHighlightOutline`, `highlightCutoutScrim`, `highlightCutoutColor`,
+  `outlineWidth`, `highlightOutlineWidth`; new text `TourStrings.gotIt`.
+- The default scrim is a bit darker (black, 65 % instead of 55 %).
+
+### 1.0.1
+- Fixes the Android Studio sync of Kotlin Multiplatform apps (`Could not find
+  kmp-taptarget-iosarm64-1.0.0.jar`), caused by JitPack's module metadata rewrite.
+- No sources jars are published anymore.
+
+### 1.0.0
+- First release: spotlight, info and free-roam steps, `TapTargetHost`,
+  `rememberTapTargetController` (progress survives recreation), wrong-tap feedback, pass-through
+  taps, back button and keyboard handling, accessibility, callbacks, crash safety, `beforeShow`
+  for lazy lists, spotlight shapes, and `TourSettings` for the look and behaviour.
+- Do not use it in Kotlin Multiplatform apps: the Android Studio sync fails, use 1.0.1 or newer.
 
 ## License
 
