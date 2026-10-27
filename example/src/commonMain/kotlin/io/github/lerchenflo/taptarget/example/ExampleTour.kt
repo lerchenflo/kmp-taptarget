@@ -58,8 +58,8 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
     ) {
         TourTitle("Highlight step")
         TourDescription(
-            "Only points at something the user should know about, like this list. Dashed calm outline, " +
-                "no tap needed: press Got it or tap anywhere."
+            "Only points at something the user should know about, like this list. A tap on it does " +
+                "nothing: press Got it or tap anywhere else."
         )
     }
 

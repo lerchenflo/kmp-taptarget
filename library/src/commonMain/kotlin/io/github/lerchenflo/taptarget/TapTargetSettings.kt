@@ -170,6 +170,13 @@ data class BubbleStyle(
  * @param spotlightBreathing       The spotlight slowly grows and shrinks, so the eye finds it.
  * @param showTapRing              Pulsing ring around the target on steps that need an exact tap.
  * @param dashedHighlightOutline   [TourBuilder.highlightStep] steps get a dashed outline (else solid).
+ * @param highlightCutoutScrim     Scrim inside the cutout of [TourBuilder.highlightStep] steps, as a
+ *                                 fraction of the scrim's opacity: 0 = fully clear, 1 = as dark as
+ *                                 the rest. Shows that the element is only shown, not to be pressed.
+ * @param highlightCutoutColor     Color of that cutout scrim. Unspecified: the step's scrim color.
+ *                                 A gray (e.g. `MaterialTheme.colorScheme.outline`) greys the element out.
+ * @param outlineWidth             Width of the spotlight outline.
+ * @param highlightOutlineWidth    Width of the outline of [TourBuilder.highlightStep] steps.
  * @param skipMissingTargets       Skip a step whose target does not appear within [targetTimeout],
  *                                 instead of waiting forever.
  * @param targetTimeout            How long a step waits for its target.
@@ -197,6 +204,10 @@ data class TourSettings(
     val spotlightBreathing: Boolean = true,
     val showTapRing: Boolean = true,
     val dashedHighlightOutline: Boolean = true,
+    val highlightCutoutScrim: Float = 0.6f,
+    val highlightCutoutColor: Color = Color.Unspecified,
+    val outlineWidth: Dp = 3.dp,
+    val highlightOutlineWidth: Dp = 4.dp,
     val skipMissingTargets: Boolean = true,
     val targetTimeout: Duration = 2.seconds,
     val autoScroll: Boolean = true,

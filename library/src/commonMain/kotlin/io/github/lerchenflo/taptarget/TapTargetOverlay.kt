@@ -424,7 +424,10 @@ private fun SpotlightTourStep(
     val shakePx = with(density) { 10.dp.toPx() }
 
     val onTap: (Offset) -> Unit = { position ->
-        if (!step.requireExactTap || spotlight.contains(position)) {
+        if (step.highlightOnly) {
+            // The highlighted element is only shown: a tap on it does nothing, anywhere else continues
+            if (!spotlight.contains(position)) controller.next()
+        } else if (!step.requireExactTap || spotlight.contains(position)) {
             controller.next()
         } else {
             controller.reportWrongTap(position)
@@ -475,7 +478,10 @@ private fun SpotlightTourStep(
         val cornerRadiusPx = with(density) { settings.cornerRadius.toPx() }
         val ringInflatePx = with(density) { 10.dp.toPx() }
         val ringStrokePx = with(density) { 2.dp.toPx() }
-        val outlineStrokePx = with(density) { 3.dp.toPx() }
+        val outlineStrokePx = with(density) {
+            (if (step.highlightOnly) settings.highlightOutlineWidth else settings.outlineWidth).toPx()
+        }
+        val indicatorStrokePx = with(density) { 3.dp.toPx() }
         val spotlightInflatePx = with(density) { 6.dp.toPx() }
         val indicatorStartPx = with(density) { 6.dp.toPx() }
         val indicatorEndPx = with(density) { 30.dp.toPx() }
@@ -489,6 +495,12 @@ private fun SpotlightTourStep(
             val hole = spotlightPath(spotlight.inflate(pulse.inflatePx), shape, cornerRadiusPx + pulse.inflatePx)
             val scrim = Path().apply { addRect(size.toRect()) }
             drawPath(Path().apply { op(scrim, hole, PathOperation.Difference) }, color = scrimColor)
+            if (step.highlightOnly) {
+                // Lighter scrim over the cutout: visible, but clearly not meant to be pressed
+                val cutoutBase = settings.highlightCutoutColor.takeOrElse { scrimColor }
+                val cutoutAlpha = cutoutBase.alpha * settings.highlightCutoutScrim.coerceIn(0f, 1f)
+                drawPath(hole, color = cutoutBase.copy(alpha = cutoutAlpha))
+            }
             drawPath(hole, color = highlightColor, alpha = pulse.fillAlpha)
             val outlineEffect = if (step.highlightOnly && settings.dashedHighlightOutline) {
                 PathEffect.dashPathEffect(floatArrayOf(outlineStrokePx * 3f, outlineStrokePx * 2f))
@@ -517,9 +529,9 @@ private fun SpotlightTourStep(
             if (indicatorProgress < 1f && tapPosition.isSpecified) {
                 val alpha = 1f - indicatorProgress
                 val radius = indicatorStartPx + (indicatorEndPx - indicatorStartPx) * indicatorProgress
-                drawCircle(feedbackColor, radius = radius, center = tapPosition, alpha = alpha, style = Stroke(outlineStrokePx))
-                drawLine(feedbackColor, tapPosition + Offset(-crossPx, -crossPx), tapPosition + Offset(crossPx, crossPx), outlineStrokePx, StrokeCap.Round, alpha = alpha)
-                drawLine(feedbackColor, tapPosition + Offset(-crossPx, crossPx), tapPosition + Offset(crossPx, -crossPx), outlineStrokePx, StrokeCap.Round, alpha = alpha)
+                drawCircle(feedbackColor, radius = radius, center = tapPosition, alpha = alpha, style = Stroke(indicatorStrokePx))
+                drawLine(feedbackColor, tapPosition + Offset(-crossPx, -crossPx), tapPosition + Offset(crossPx, crossPx), indicatorStrokePx, StrokeCap.Round, alpha = alpha)
+                drawLine(feedbackColor, tapPosition + Offset(-crossPx, crossPx), tapPosition + Offset(crossPx, -crossPx), indicatorStrokePx, StrokeCap.Round, alpha = alpha)
             }
         }
 
@@ -530,9 +542,12 @@ private fun SpotlightTourStep(
             Modifier
                 .rectPlacement(spotlight, density)
                 .semantics {
-                    role = Role.Button
                     contentDescription = strings.highlightedTarget
-                    onClick(label = strings.highlightedTarget) { controller.next(); true }
+                    // Highlight steps only show the element, so it is no button for screen readers either
+                    if (!step.highlightOnly) {
+                        role = Role.Button
+                        onClick(label = strings.highlightedTarget) { controller.next(); true }
+                    }
                 }
         )
 

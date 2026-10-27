@@ -247,7 +247,7 @@ class TapTargetController(
 
     /** Whether a tap on the current target also reaches the real composable. */
     internal fun passesTapToTarget(step: TourStep): Boolean =
-        step.passTapToTarget ?: tourSettings.passTapToTarget
+        !step.highlightOnly && (step.passTapToTarget ?: tourSettings.passTapToTarget)
 
     internal fun spotlightShapeOf(step: TourStep): SpotlightShape =
         step.spotlightShape ?: tourSettings.spotlightShape

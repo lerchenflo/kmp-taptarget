@@ -20,7 +20,7 @@ enum class FreeRoamBarPosition { Top, Center, Bottom }
 typealias TourStepContent = @Composable ColumnScope.() -> Unit
 
 /** Light enough that the screen behind stays readable; the spotlight outline carries the focus. */
-val DefaultTourBackgroundColor: Color = Color.Black.copy(alpha = 0.55f)
+val DefaultTourBackgroundColor: Color = Color.Black.copy(alpha = 0.65f)
 
 /**
  * Describes a single step in an onboarding tour.
@@ -33,8 +33,9 @@ val DefaultTourBackgroundColor: Color = Color.Black.copy(alpha = 0.55f)
  * @param backgroundColor  Scrim color. Unspecified: [TourSettings.scrimColor].
  * @param passTapToTarget  Overrides [TourSettings.passTapToTarget] for this step. Null: use the setting.
  * @param spotlightShape   Overrides [TourSettings.spotlightShape] for this step. Null: use the setting.
- * @param highlightOnly    The step only shows the target: calm dashed outline, a "Got it" button,
- *                         a tap anywhere continues. See [TourBuilder.highlightStep].
+ * @param highlightOnly    The step only shows the target: calm dashed outline, lightly dimmed
+ *                         cutout, a "Got it" button. A tap on the target does nothing, a tap
+ *                         anywhere else continues. See [TourBuilder.highlightStep].
  * @param beforeShow       Runs after the navigation to [route] and before the step waits for its
  *                         target, e.g. to scroll a lazy list to an item that is not composed yet.
  * @param content          Optional content of the info bubble.
@@ -149,8 +150,10 @@ class TourBuilder {
 
     /**
      * Adds a step that only points at the composable registered with [tapTarget] ([id]), for
-     * information: the outline is calm and dashed (no pulse), the bubble has an info icon and a
-     * "Got it" button ([buttonText], default [TourStrings.gotIt]), and a tap anywhere continues.
+     * information: the outline is calm and dashed (no pulse), the cutout stays lightly dimmed
+     * ([TourSettings.highlightCutoutScrim]), the bubble has an info icon and a "Got it" button
+     * ([buttonText], default [TourStrings.gotIt]). A tap on the target does nothing (it never
+     * reaches the element), a tap anywhere else continues.
      * Use it for elements the user should know about but not press now.
      */
     fun highlightStep(

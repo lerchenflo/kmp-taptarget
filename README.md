@@ -245,7 +245,7 @@ cannot drift apart.
 | Builder function | Spotlight | Blocks the app | Advances on                                                   |
 |------------------|-----------|----------------|---------------------------------------------------------------|
 | `tapStep`        | yes       | yes            | a tap on the target, or anywhere if `requireExactTap = false` |
-| `highlightStep`  | yes, calm and dashed | yes | the "Got it" button or a tap anywhere (only informs)      |
+| `highlightStep`  | yes, calm, dashed, lightly dimmed | yes | "Got it" or a tap anywhere except on the target |
 | `infoStep`       | no        | yes            | a tap anywhere                                                |
 | `freeRoamStep`   | no        | no             | the Continue button in the hint bar                           |
 
@@ -276,7 +276,7 @@ Parameters:
 | `id`                 | `tapStep`             | Target id, matches `Modifier.tapTarget(id)`.                                  |
 | `route`              | all                   | Screen the step lives on. The controller navigates there first. `null`: stay. |
 | `requireExactTap`    | `tapStep`             | `true` (default): only a tap on the target advances. `false`: a tap anywhere. |
-| `backgroundColor`    | `tapStep`, `infoStep` | Scrim color. Default: `DefaultTourBackgroundColor` (black, 55 % opacity).     |
+| `backgroundColor`    | `tapStep`, `infoStep` | Scrim color. Default: `DefaultTourBackgroundColor` (black, 65 % opacity).     |
 | `position`           | `freeRoamStep`        | Hint bar position: `Top`, `Center` or `Bottom`.                               |
 | `continueButtonText` | `freeRoamStep`        | Continue button label. Falls back to `TourStrings.continueButton`.            |
 
@@ -284,7 +284,8 @@ Parameters:
 
 Use `highlightStep` for an element the user should know about but not press now (for example
 "here you can create groups later"). The outline is calm and dashed, there is no pulse ring, the
-bubble shows an info icon and a "Got it" button, and a tap anywhere continues as well:
+cutout stays lightly dimmed, and the bubble shows an info icon and a "Got it" button. A tap on the
+highlighted element does nothing (it never reaches the element); a tap anywhere else continues:
 
 ```kotlin
 highlightStep(
@@ -296,7 +297,11 @@ highlightStep(
 
 The button text comes from `TourStrings.gotIt` or the step's `buttonText`, the button itself can be
 replaced with the `continueButton` slot of `TapTargetHost`, and `dashedHighlightOutline = false`
-in `TourSettings` draws a solid outline instead.
+in `TourSettings` draws a solid outline instead. `highlightCutoutScrim` (default `0.6f`) sets how
+dark the cutout is, as a fraction of the scrim: `0f` leaves it fully clear, `1f` makes it as dark as
+the rest; `highlightCutoutColor` (for example `MaterialTheme.colorScheme.outline`) greys the
+element out instead of darkening it, and `highlightOutlineWidth` (default `4.dp`) sets the outline.
+`passTapToTarget` never applies to highlight steps.
 
 ## Custom bubble content
 
@@ -514,6 +519,11 @@ TourSettings(
     highlightColor = Color.Unspecified,              // outline, ring, guide hand; Unspecified = primary
     spotlightBreathing = true,                       // the spotlight slowly grows and shrinks
     showTapRing = true,                              // pulsing ring on exact-tap steps
+    dashedHighlightOutline = true,                   // highlightStep: dashed instead of solid outline
+    highlightCutoutScrim = 0.6f,                     // highlightStep: dimming inside the cutout (0 = clear, 1 = like the scrim)
+    highlightCutoutColor = Color.Unspecified,        // highlightStep: cutout color, Unspecified = scrim; a gray greys it out
+    outlineWidth = 3.dp,                             // spotlight outline
+    highlightOutlineWidth = 4.dp,                    // highlightStep outline
     skipMissingTargets = true,                       // skip steps whose target does not appear
     targetTimeout = 2.seconds,                       // how long a step waits for its target
     autoScroll = true,                               // scroll targets to the middle of the screen
