@@ -163,6 +163,7 @@ fun SettingsScreen(
         TourOptionSwitch("Circle spotlight", tourOptions.circleSpotlight) { tourOptions.circleSpotlight = it }
         TourOptionSwitch("Show step progress", tourOptions.showProgress) { tourOptions.showProgress = it }
         TourOptionSwitch("Back blocks (instead of previous step)", tourOptions.backBlocks) { tourOptions.backBlocks = it }
+        TourOptionSwitch("Keep the user on the free-roam screen", tourOptions.keepOnFreeRoamScreen) { tourOptions.keepOnFreeRoamScreen = it }
 
         Button(
             onClick = { tourController?.start() },

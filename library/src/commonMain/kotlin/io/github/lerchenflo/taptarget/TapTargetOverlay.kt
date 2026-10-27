@@ -98,6 +98,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import kotlinx.coroutines.CoroutineScope
@@ -164,6 +165,7 @@ fun TapTargetOverlay(
         //Effect gets cancelled when the step changes meanwhile, so this only handles the stuck step
         if (controller.ensureCurrentStepVisible()) {
             controller.notifyStepShown()
+            controller.watchFreeRoamLeave()
         } else {
             controller.handleMissingTarget()
         }
@@ -244,10 +246,13 @@ private fun TapTargetController.handleKey(key: Key): Boolean {
 
 @Composable
 private fun TourBackHandler(controller: TapTargetController) {
-    val behavior = controller.tourSettings.backBehavior
+    // Hosts without a back dispatcher (some tests, custom hosts) get no back handling instead of a crash
+    if (LocalNavigationEventDispatcherOwner.current == null) return
+    val settings = controller.tourSettings
+    val behavior = if (controller.isBlocking) settings.backBehavior else settings.freeRoamBackBehavior
     NavigationBackHandler(
         state = rememberNavigationEventState(currentInfo = NavigationEventInfo.None),
-        isBackEnabled = controller.isBlocking && behavior != TourBackBehavior.PassThrough,
+        isBackEnabled = controller.isActive && behavior != TourBackBehavior.PassThrough,
         onBackCompleted = {
             when (behavior) {
                 TourBackBehavior.PreviousStep -> controller.previous()
@@ -373,6 +378,8 @@ private fun spotlightPath(bounds: Rect, shape: SpotlightShape, cornerRadiusPx: F
 @Composable
 private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, strings: TourStrings) {
     val target = controller.currentTarget ?: return   // not laid out yet → draw nothing
+    // Bounds of a target that is detached or laid out in an odd place: draw nothing rather than crash
+    if (!target.bounds.isFinite) return
 
     val settings = controller.tourSettings
     val feedback = settings.wrongTapFeedback
@@ -399,7 +406,7 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
         } else {
             controller.reportWrongTap(position)
             wrongTap.trigger(position, feedback, scope, shakePx)
-            if (feedback.haptic) haptic.performHapticFeedback(HapticFeedbackType.Reject)
+            if (feedback.haptic) runCatching { haptic.performHapticFeedback(HapticFeedbackType.Reject) }
         }
     }
 
@@ -436,6 +443,8 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
                 else Modifier.pointerInput(step, spotlight) { detectTapGestures(onTap = onTap) }
             )
     ) {
+        // Inside an unbounded container (e.g. a scrolling parent) there is no screen size to lay out against
+        if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) return@BoxWithConstraints
         val screenWidthPx = with(density) { maxWidth.toPx() }
         val screenHeightPx = with(density) { maxHeight.toPx() }
         val edgePaddingPx = with(density) { 16.dp.toPx() }
@@ -571,7 +580,7 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
                     .offset {
                         val position = lerp(wrongTap.guideStart, spotlight.center, wrongTap.guide.value)
                         // The finger tip sits at the top center of the icon
-                        IntOffset((position.x - handSizePx / 2f).roundToInt(), (position.y - handSizePx / 6f).roundToInt())
+                        IntOffset((position.x - handSizePx / 2f).safeRoundToInt(), (position.y - handSizePx / 6f).safeRoundToInt())
                     }
                     .size(handSize)
                     .graphicsLayer {
@@ -614,8 +623,17 @@ private fun TapCatchersAround(
 
 /** Places a box exactly over [rect] (root coordinates, the overlay fills the root). */
 private fun Modifier.rectPlacement(rect: Rect, density: Density): Modifier =
-    offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
-        .size(with(density) { DpSize(rect.width.toDp(), rect.height.toDp()) })
+    offset { IntOffset(rect.left.safeRoundToInt(), rect.top.safeRoundToInt()) }
+        .size(
+            with(density) {
+                DpSize(rect.width.finiteOrZero().coerceAtLeast(0f).toDp(), rect.height.finiteOrZero().coerceAtLeast(0f).toDp())
+            }
+        )
+
+/** roundToInt throws for NaN; a broken position must not crash the app. */
+private fun Float.safeRoundToInt(): Int = if (isNaN()) 0 else roundToInt()
+
+private fun Float.finiteOrZero(): Float = if (isFinite()) this else 0f
 
 /** Announces each new step to screen readers and offers continue / back / skip as actions. */
 private fun Modifier.tourStepSemantics(controller: TapTargetController, strings: TourStrings): Modifier =
@@ -660,8 +678,10 @@ private fun TourCard(
 @Composable
 private fun StepProgress(controller: TapTargetController, strings: TourStrings, style: BubbleStyle) {
     if (!style.showProgress) return
+    // The app's formatter must not crash the tour
+    val text = runCatching { strings.stepProgress(controller.currentIndex + 1, controller.stepCount) }.getOrDefault("")
     Text(
-        text = strings.stepProgress(controller.currentIndex + 1, controller.stepCount),
+        text = text,
         style = MaterialTheme.typography.labelSmall,
         color = LocalContentColor.current.copy(alpha = 0.7f),
     )

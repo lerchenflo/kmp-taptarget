@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
@@ -46,6 +47,9 @@ data class TargetInfo(val bounds: Rect)
  * @param onWrongTap          A tap next to the target on a step that needs an exact tap.
  *                            The position is in root coordinates.
  * @param onTargetMissing     A step's target did not appear within [TourSettings.targetTimeout].
+ * @param onError             An exception thrown by one of the app's callbacks (or `beforeShow`).
+ *                            The library catches it, so a broken callback never crashes the app;
+ *                            the tour goes on (a step whose navigation failed is skipped).
  */
 class TapTargetController(
     private val tour: TapTargetTour,
@@ -59,12 +63,24 @@ class TapTargetController(
     private val onSkipped: (index: Int) -> Unit = {},
     private val onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> },
     private val onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> },
+    private val onError: (Throwable) -> Unit = {},
 ) {
     /** Behaviour and look of the tour. Changes apply at once, also while the tour runs. */
     var tourSettings by mutableStateOf(tourSettings)
 
     // Direction of the last move, so a missing target is skipped the way the user is going
     private var movingForward = true
+
+    /** Runs app code: an exception goes to [onError] instead of crashing the app. */
+    private inline fun <T> safely(fallback: T, block: () -> T): T =
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            try { onError(e) } catch (_: Exception) { }
+            fallback
+        }
 
     // Targets registered by Modifier.tapTarget — keyed by step id.
     private val targets = mutableStateMapOf<String, TargetInfo>()
@@ -126,7 +142,7 @@ class TapTargetController(
         if (currentIndex < tour.steps.size) currentIndex++
         if (currentIndex >= tour.steps.size) {
             active = false
-            onFinished()
+            safely(Unit) { onFinished() }
         }
     }
 
@@ -151,10 +167,10 @@ class TapTargetController(
     }
 
     fun skip() {
-        if (isActive) onSkipped(currentIndex)
+        if (isActive) safely(Unit) { onSkipped(currentIndex) }
         currentIndex = tour.steps.size
         active = false
-        onFinished()
+        safely(Unit) { onFinished() }
     }
 
     /**
@@ -171,11 +187,11 @@ class TapTargetController(
         val step = currentStep ?: return true
 
         val route = step.route
-        val activeRoute = currentRoute()
-        if (route != null && (activeRoute == null || !isMatchingRoute(route, activeRoute))) {
-            onNavigateToRoute(route)
+        val activeRoute = safely(null) { currentRoute() }
+        if (route != null && (activeRoute == null || !safely(false) { isMatchingRoute(route, activeRoute) })) {
+            safely(Unit) { onNavigateToRoute(route) }
         }
-        step.beforeShow?.invoke()
+        step.beforeShow?.let { beforeShow -> safely(Unit) { beforeShow() } }
 
         val id = step.id ?: return true   // no target to wait for
         if (targets.containsKey(id)) return true
@@ -186,22 +202,47 @@ class TapTargetController(
         return targets.containsKey(id)
     }
 
+    /**
+     * Overlay: watches the route while a free-roam step shows and applies
+     * [TourSettings.freeRoamLeaveBehavior] when the user leaves the step's screen.
+     * Polls instead of observing, so it works with navigation state that is not snapshot state.
+     */
+    internal suspend fun watchFreeRoamLeave() {
+        val step = currentStep ?: return
+        val stepRoute = step.route ?: return
+        if (step.isBlocking) return
+        val index = currentIndex
+        while (isActive && currentIndex == index) {
+            delay(200.milliseconds)
+            val behavior = tourSettings.freeRoamLeaveBehavior
+            if (behavior == FreeRoamLeaveBehavior.Allow) continue
+            val activeRoute = safely(null) { currentRoute() } ?: continue
+            if (safely(true) { isMatchingRoute(stepRoute, activeRoute) }) continue
+            when (behavior) {
+                FreeRoamLeaveBehavior.ReturnToStepRoute -> safely(Unit) { onNavigateToRoute(stepRoute) }
+                FreeRoamLeaveBehavior.NextStep -> { next(); return }
+                FreeRoamLeaveBehavior.SkipTour -> { skip(); return }
+                FreeRoamLeaveBehavior.Allow -> Unit
+            }
+        }
+    }
+
     /** Overlay: the current step is on screen. */
     internal fun notifyStepShown() {
-        currentStep?.let { onStepShown(currentIndex, it) }
+        currentStep?.let { step -> safely(Unit) { onStepShown(currentIndex, step) } }
     }
 
     /** Overlay: the current step's target never appeared. Skips it in the direction of the last move. */
     internal fun handleMissingTarget() {
         val id = currentStep?.id ?: return
-        onTargetMissing(currentIndex, id)
+        safely(Unit) { onTargetMissing(currentIndex, id) }
         if (!tourSettings.skipMissingTargets) return
         if (movingForward || currentIndex == 0) next() else previous()
     }
 
     /** Overlay: a tap next to the target on an exact-tap step. */
     internal fun reportWrongTap(position: Offset) {
-        if (isActive) onWrongTap(currentIndex, position)
+        if (isActive) safely(Unit) { onWrongTap(currentIndex, position) }
     }
 
     /** Whether a tap on the current target also reaches the real composable. */
@@ -250,6 +291,7 @@ fun rememberTapTargetController(
     onSkipped: (index: Int) -> Unit = {},
     onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> },
     onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> },
+    onError: (Throwable) -> Unit = {},
 ): TapTargetController {
     val latestOnNavigateToRoute by rememberUpdatedState(onNavigateToRoute)
     val latestCurrentRoute by rememberUpdatedState(currentRoute)
@@ -259,6 +301,7 @@ fun rememberTapTargetController(
     val latestOnSkipped by rememberUpdatedState(onSkipped)
     val latestOnWrongTap by rememberUpdatedState(onWrongTap)
     val latestOnTargetMissing by rememberUpdatedState(onTargetMissing)
+    val latestOnError by rememberUpdatedState(onError)
 
     val createController = {
         TapTargetController(
@@ -272,6 +315,7 @@ fun rememberTapTargetController(
             onSkipped = { index -> latestOnSkipped(index) },
             onWrongTap = { index, position -> latestOnWrongTap(index, position) },
             onTargetMissing = { index, id -> latestOnTargetMissing(index, id) },
+            onError = { error -> latestOnError(error) },
         )
     }
 
@@ -280,7 +324,11 @@ fun rememberTapTargetController(
             save = { controller -> listOf(controller.currentIndex, controller.active) },
             restore = { saved ->
                 createController().apply {
-                    restoreState(index = saved[0] as Int, isActive = saved[1] as Boolean)
+                    // Safe casts: unexpected saved data starts the controller fresh instead of crashing
+                    restoreState(
+                        index = saved.getOrNull(0) as? Int ?: 0,
+                        isActive = saved.getOrNull(1) as? Boolean ?: false,
+                    )
                 }
             },
         ),

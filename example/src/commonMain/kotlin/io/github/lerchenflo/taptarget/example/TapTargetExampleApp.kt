@@ -36,6 +36,7 @@ import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import io.github.lerchenflo.taptarget.BubbleStyle
+import io.github.lerchenflo.taptarget.FreeRoamLeaveBehavior
 import io.github.lerchenflo.taptarget.SpotlightShape
 import io.github.lerchenflo.taptarget.TapTargetHost
 import io.github.lerchenflo.taptarget.TourBackBehavior
@@ -193,6 +194,7 @@ class DemoTourOptions {
     var circleSpotlight by mutableStateOf(false)
     var showProgress by mutableStateOf(true)
     var backBlocks by mutableStateOf(false)
+    var keepOnFreeRoamScreen by mutableStateOf(false)
 
     fun toTourSettings(): TourSettings = TourSettings(
         passTapToTarget = passTapToTarget,
@@ -200,6 +202,8 @@ class DemoTourOptions {
         spotlightShape = if (circleSpotlight) SpotlightShape.Circle else SpotlightShape.RoundedRect,
         bubble = BubbleStyle(showProgress = showProgress),
         backBehavior = if (backBlocks) TourBackBehavior.Block else TourBackBehavior.PreviousStep,
+        freeRoamBackBehavior = if (keepOnFreeRoamScreen) TourBackBehavior.Block else TourBackBehavior.PassThrough,
+        freeRoamLeaveBehavior = if (keepOnFreeRoamScreen) FreeRoamLeaveBehavior.ReturnToStepRoute else FreeRoamLeaveBehavior.Allow,
     )
 }
 

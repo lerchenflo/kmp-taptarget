@@ -133,10 +133,10 @@ All parts can be switched off one by one with `WrongTapFeedback`.
 
 ## 10. Tests (compile only unless the user asks to run them)
 
-- [ ] Controller: `previous()`, `goTo()`, `restoreState`, backwards skipping.
-- [ ] Wrong tap calls `onWrongTap` and does not advance; tap on target advances.
-- [ ] Pass-through: the target's own `onClick` runs and the tour advances.
-- [ ] `Modifier.tapTarget` unregisters when it leaves the composition.
+- [x] Controller: `previous()`, `goTo()`, `restoreState`, backwards skipping.
+- [x] Wrong tap calls `onWrongTap` and does not advance; tap on target advances.
+- [x] Pass-through: the target's own `onClick` runs and the tour advances.
+- [x] `Modifier.tapTarget` unregisters when it leaves the composition.
 
 ## 11. Docs and release prep
 
@@ -146,3 +146,19 @@ All parts can be switched off one by one with `WrongTapFeedback`.
 - [ ] Check KDoc of every public symbol.
 - [ ] Release only after the user has checked the demo (user: JitPack is not important now).
   JitPack answered 502 for the test build of commit `51669f8`; retry when releasing.
+
+## 12. Crash safety (user, 2026-10-27: "if something doesn't work I don't want a crash")
+
+- [x] Every app callback (navigation, route checks, `beforeShow`, `onFinished`, analytics callbacks)
+  runs through `safely {}`: exceptions go to the new `onError` callback, the tour goes on.
+- [x] No back handler without a `NavigationEventDispatcherOwner` (no crash in custom hosts / tests).
+- [x] NaN / infinite target bounds and unbounded constraints draw nothing; rounding is NaN-safe.
+- [x] Haptics, the progress formatter and auto-scroll can fail without crashing.
+- [x] Saved state is restored with safe casts.
+
+## 13. Free-roam steps and navigation (user, 2026-10-27)
+
+- [x] `freeRoamBackBehavior` (default `PassThrough`): system back during a free-roam step.
+- [x] `freeRoamLeaveBehavior` (`Allow`, `ReturnToStepRoute`, `NextStep`, `SkipTour`): the overlay
+  polls the route while a free-roam step with a `route` shows and reacts when the user leaves it.
+- [x] Demo switch "Keep the user on the free-roam screen".

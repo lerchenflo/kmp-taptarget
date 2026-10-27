@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.relocation.bringIntoView
 import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -174,7 +175,13 @@ private class TapTargetNode(private var id: String) :
             snapshotFlow { if (controller.isActive) controller.currentIndex else -1 }
                 .collectLatest {
                     if (controller.currentStep?.id == id && controller.tourSettings.autoScroll) {
-                        scrollIntoCenter(controller)
+                        try {
+                            scrollIntoCenter(controller)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // Auto-scroll is a nicety: if a parent cannot scroll, the step still shows
+                        }
                     }
                 }
         }

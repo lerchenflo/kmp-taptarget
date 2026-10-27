@@ -61,6 +61,24 @@ enum class TourBackBehavior {
 }
 
 /**
+ * What happens when the user leaves the screen of a free-roam step (app back arrow, a tab, a link).
+ * Only applies to free-roam steps with a `route`.
+ */
+enum class FreeRoamLeaveBehavior {
+    /** Nothing: the user may explore other screens, the hint bar stays. */
+    Allow,
+
+    /** Navigate back to the step's route. */
+    ReturnToStepRoute,
+
+    /** Go on with the next step. */
+    NextStep,
+
+    /** End the tour. */
+    SkipTour,
+}
+
+/**
  * Feedback for a tap next to the target on a step that needs an exact tap.
  * Every part can be switched off on its own, [None] switches everything off.
  *
@@ -148,6 +166,9 @@ data class BubbleStyle(
  *                                 runs its own onClick). A step can override it.
  * @param wrongTapFeedback         Feedback for taps next to the target.
  * @param backBehavior             What system back does while a blocking step shows.
+ * @param freeRoamBackBehavior     What system back does during a free-roam step. Default
+ *                                 [TourBackBehavior.PassThrough]: the app handles it.
+ * @param freeRoamLeaveBehavior    What happens when the user leaves the screen of a free-roam step.
  * @param keyboardNavigation       Enter / Space / Right arrow continue, Left arrow goes back,
  *                                 Escape skips the tour.
  * @param hideAppFromScreenReader  While a blocking step shows, screen readers only see the tour.
@@ -168,6 +189,8 @@ data class TourSettings(
     val passTapToTarget: Boolean = false,
     val wrongTapFeedback: WrongTapFeedback = WrongTapFeedback(),
     val backBehavior: TourBackBehavior = TourBackBehavior.PreviousStep,
+    val freeRoamBackBehavior: TourBackBehavior = TourBackBehavior.PassThrough,
+    val freeRoamLeaveBehavior: FreeRoamLeaveBehavior = FreeRoamLeaveBehavior.Allow,
     val keyboardNavigation: Boolean = true,
     val hideAppFromScreenReader: Boolean = true,
     val bubble: BubbleStyle = BubbleStyle(),
