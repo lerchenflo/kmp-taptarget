@@ -1,0 +1,45 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+.kotlin/
+kotlin-js-store/
+
+# Local machine settings (SDK path, signing passwords, ...)
+local.properties
+
+# IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.fleet/
+.vscode/
+
+# Android
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+
+# Signing keys - never commit them
+*.gpg
+*.jks
+*.keystore
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and dumps
+*.log
+*.hprof

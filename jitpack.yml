@@ -1,0 +1,6 @@
+# JitPack builds a release when someone first requests a tag (or commit) of this repo.
+# Only the library is published: the example apps are not built, which keeps the build short.
+jdk:
+  - openjdk25
+install:
+  - ./gradlew :library:publishToMavenLocal -Pversion=$VERSION --console=plain

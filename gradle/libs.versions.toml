@@ -1,0 +1,42 @@
+# The library is built against the LOWEST versions its consumer apps use.
+# Gradle picks the highest version of a dependency in an app, so a newer version here would silently
+# upgrade Compose / material3 in every app that uses the library (and material3 must match the
+# Compose Multiplatform version, otherwise iOS crashes with an IrLinkage error).
+# Raise these only when every consumer app is on the new version.
+[versions]
+
+android-minSdk = "24"
+android-compileSdk = "37"
+agp = "9.4.1"
+
+kotlin = "2.4.20"
+composeMultiplatform = "1.12.1" #Plugin and all Compose core libraries (runtime, ui, foundation, components-resources)
+material3 = "1.12.0-alpha03" #Must be the material3 version listed next to composeMultiplatform in the CMP release notes
+materialIconsExtended = "1.7.3" #Last published version, the artifact is frozen
+kotlinxCoroutines = "1.11.0"
+vanniktechMavenPublish = "0.36.0"
+androidxActivityCompose = "1.13.0"
+navigationevent = "1.1.0" #Same version Compose UI depends on
+
+
+[libraries]
+runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
+foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
+ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
+ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "composeMultiplatform" }
+components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "composeMultiplatform" }
+material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
+material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "materialIconsExtended" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
+navigationevent-compose = { module = "org.jetbrains.androidx.navigationevent:navigationevent-compose", version.ref = "navigationevent" }
+
+
+[plugins]
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+vanniktech-mavenPublish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktechMavenPublish" }
+composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
