@@ -2,12 +2,14 @@ package io.github.lerchenflo.taptarget
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.click
@@ -33,6 +35,8 @@ class TapTargetHostTest {
                 tapStep(id = "target") { }
                 infoStep { }
             },
+            // Hidden app content would hide the test tag as well
+            tourSettings = TourSettings(hideAppFromScreenReader = false),
             onWrongTap = { _, _ -> wrongTaps++ },
         )
         setContent {
@@ -59,7 +63,8 @@ class TapTargetHostTest {
             tour = tapTargetTour {
                 tapStep(id = "target", passTapToTarget = true) { }
                 infoStep { }
-            }
+            },
+            tourSettings = TourSettings(hideAppFromScreenReader = false),
         )
         setContent {
             TapTargetHost(controller = controller) {
@@ -99,5 +104,37 @@ class TapTargetHostTest {
 
         showTarget = false
         runOnIdle { assertNull(controller.currentTarget) }
+    }
+
+    @Test
+    fun the_spotlight_follows_a_target_that_moves_in_layout() = runComposeUiTest {
+        var offsetX by mutableStateOf(0.dp)
+        val controller = TapTargetController(tour = tapTargetTour { tapStep(id = "target") { } })
+        setContent {
+            TapTargetHost(controller = controller) {
+                Box(Modifier.offset(x = offsetX).size(48.dp).tapTarget("target"))
+            }
+        }
+        runOnIdle { controller.start() }
+        val before = runOnIdle { controller.currentTarget!!.bounds.left }
+
+        offsetX = 100.dp
+        runOnIdle { assertTrue(controller.currentTarget!!.bounds.left > before + 50f) }
+    }
+
+    @Test
+    fun the_spotlight_follows_a_target_moved_by_a_graphics_layer() = runComposeUiTest {
+        var translationX by mutableStateOf(0f)
+        val controller = TapTargetController(tour = tapTargetTour { tapStep(id = "target") { } })
+        setContent {
+            TapTargetHost(controller = controller) {
+                Box(Modifier.graphicsLayer { this.translationX = translationX }.size(48.dp).tapTarget("target"))
+            }
+        }
+        runOnIdle { controller.start() }
+        val before = runOnIdle { controller.currentTarget!!.bounds.left }
+
+        translationX = 200f
+        runOnIdle { assertTrue(controller.currentTarget!!.bounds.left > before + 100f) }
     }
 }

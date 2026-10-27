@@ -117,7 +117,7 @@ All parts can be switched off one by one with `WrongTapFeedback`.
 
 ## 8. Lazy lists
 
-- [ ] Document `beforeShow` for off-screen lazy items, for example
+- [x] Document `beforeShow` for off-screen lazy items, for example
   `tapStep(id = "item_25", beforeShow = { listState.scrollToItem(24) })`.
 - [ ] Remove the matching P4 item from `SchneaggchatV3/plans/Todo.md` once this is released.
 
@@ -140,10 +140,10 @@ All parts can be switched off one by one with `WrongTapFeedback`.
 
 ## 11. Docs and release prep
 
-- [ ] README: new sections (wrong-tap feedback, pass-through, back and keyboard, accessibility,
+- [x] README: new sections (wrong-tap feedback, pass-through, back and keyboard, accessibility,
   callbacks, lazy lists, runtime settings), update Settings, API reference, AI guide and the
   demo list.
-- [ ] Check KDoc of every public symbol.
+- [x] Check KDoc of every public symbol.
 - [ ] Release only after the user has checked the demo (user: JitPack is not important now).
   JitPack answered 502 for the test build of commit `51669f8`; retry when releasing.
 
@@ -162,3 +162,21 @@ All parts can be switched off one by one with `WrongTapFeedback`.
 - [x] `freeRoamLeaveBehavior` (`Allow`, `ReturnToStepRoute`, `NextStep`, `SkipTour`): the overlay
   polls the route while a free-roam step with a `route` shows and reacts when the user leaves it.
 - [x] Demo switch "Keep the user on the free-roam screen".
+
+## 14. Spotlight shapes (user, 2026-10-27: circle broken on wide targets)
+
+- [x] `Circle` now encloses the whole target and falls back to `Pill` when the target's sides differ
+  by more than 1.25x. New shapes `Pill` (capsule) and `Oval` (ellipse through the corners).
+
+## 15. Moving targets (user, 2026-10-27)
+
+- [x] The spotlight follows a target that moves (layout offset, scroll, `graphicsLayer`
+  translation). Covered by two tests in `TapTargetHostTest`; `:library:jvmTest` ran green
+  (14 tests) on 2026-10-27, user asked to make sure it works.
+
+## Open
+
+- [ ] User checks the demo app on desktop and Android (`./gradlew :example:run`,
+  `./gradlew :example-android:installDebug`).
+- [ ] Then: first tag + JitPack build, then switch SchneaggchatV3 (see its `plans/Todo.md`) and the
+  other apps (their TODO files).

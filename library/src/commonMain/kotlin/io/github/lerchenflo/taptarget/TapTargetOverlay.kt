@@ -103,7 +103,9 @@ import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** Default headline text for a step's bubble. */
@@ -359,19 +361,33 @@ private class WrongTapState {
     }
 }
 
-/** Bounds of the spotlight hole: the padded target, or the square around the circle. */
+/** A circle only fits targets that are about square; others get a pill (see [SpotlightShape.Circle]). */
+private fun resolveSpotlightShape(target: Rect, shape: SpotlightShape): SpotlightShape {
+    if (shape != SpotlightShape.Circle) return shape
+    val longer = max(target.width, target.height)
+    val shorter = min(target.width, target.height)
+    return if (shorter > 0f && longer / shorter <= 1.25f) SpotlightShape.Circle else SpotlightShape.Pill
+}
+
+/** Bounds of the spotlight hole for a resolved [shape]: the hole always contains the whole target. */
 private fun spotlightBounds(target: Rect, shape: SpotlightShape, paddingPx: Float): Rect = when (shape) {
-    SpotlightShape.RoundedRect -> target.inflate(paddingPx)
-    SpotlightShape.Circle -> {
-        val radius = max(target.width, target.height) / 2f + paddingPx
-        Rect(center = target.center, radius = radius)
+    SpotlightShape.RoundedRect, SpotlightShape.Pill -> target.inflate(paddingPx)
+    SpotlightShape.Circle -> Rect(center = target.center, radius = hypot(target.width, target.height) / 2f + paddingPx)
+    SpotlightShape.Oval -> {
+        // The ellipse with the target's proportions that passes through its corners: half axes * sqrt(2)
+        val radiusX = target.width / 2f * SQRT_2 + paddingPx
+        val radiusY = target.height / 2f * SQRT_2 + paddingPx
+        Rect(target.center.x - radiusX, target.center.y - radiusY, target.center.x + radiusX, target.center.y + radiusY)
     }
 }
+
+private const val SQRT_2 = 1.4142135f
 
 private fun spotlightPath(bounds: Rect, shape: SpotlightShape, cornerRadiusPx: Float): Path = Path().apply {
     when (shape) {
         SpotlightShape.RoundedRect -> addRoundRect(RoundRect(rect = bounds, cornerRadius = CornerRadius(cornerRadiusPx)))
-        SpotlightShape.Circle -> addOval(bounds)
+        SpotlightShape.Pill -> addRoundRect(RoundRect(rect = bounds, cornerRadius = CornerRadius(min(bounds.width, bounds.height) / 2f)))
+        SpotlightShape.Circle, SpotlightShape.Oval -> addOval(bounds)
     }
 }
 
@@ -384,7 +400,7 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
     val settings = controller.tourSettings
     val feedback = settings.wrongTapFeedback
     val bubbleStyle = settings.bubble
-    val shape = controller.spotlightShapeOf(step)
+    val shape = resolveSpotlightShape(target.bounds, controller.spotlightShapeOf(step))
     val passThrough = controller.passesTapToTarget(step)
 
     val highlightColor = settings.highlightColor.takeOrElse { MaterialTheme.colorScheme.primary }

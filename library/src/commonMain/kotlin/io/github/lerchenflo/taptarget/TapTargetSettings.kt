@@ -41,8 +41,18 @@ enum class SpotlightShape {
     /** Rounded rectangle around the target bounds, see [TourSettings.cornerRadius]. */
     RoundedRect,
 
-    /** Circle around the target center. Fits round icons and buttons. */
+    /**
+     * Circle around the whole target (corners included). Fits round icons and square buttons.
+     * A target that is clearly wider than tall (or taller than wide, ratio above 1.25) gets a
+     * [Pill] instead, because a circle around it would cover far too much of the screen.
+     */
     Circle,
+
+    /** Capsule: a rectangle with fully rounded ends. Fits chips, text buttons and list rows. */
+    Pill,
+
+    /** Ellipse through the target's corners. Follows the target's proportions. */
+    Oval,
 }
 
 /** What the system back button / gesture does while a blocking step shows. */

@@ -27,6 +27,11 @@ TapTargetHost(controller = rememberTapTargetController(tour = myTour)) {
 - [Starting, restarting and saving progress](#starting-restarting-and-saving-progress)
 - [Localization](#localization)
 - [Skip button](#skip-button)
+- [Wrong-tap feedback](#wrong-tap-feedback)
+- [Letting the tap reach the target](#letting-the-tap-reach-the-target)
+- [Back button, keyboard and free-roam steps](#back-button-keyboard-and-free-roam-steps)
+- [Accessibility](#accessibility)
+- [Callbacks and errors](#callbacks-and-errors)
 - [Settings](#settings)
 - [API reference](#api-reference)
 - [Behaviour and limitations](#behaviour-and-limitations)
@@ -50,9 +55,21 @@ TapTargetHost(controller = rememberTapTargetController(tour = myTour)) {
 - **Tours across screens and tabs**: every step can name a route. The controller navigates there and
   waits for the target to appear. Works with Navigation 3, Jetpack Navigation, Voyager, Decompose or
   your own back stack.
-- **Tap modes**: a step can require a tap exactly on the target (with a pulsing ring and a
-  wrong-tap pulse), or accept a tap anywhere.
+- **Tap modes**: a step can require a tap exactly on the target, or accept a tap anywhere.
+- **Clear wrong-tap feedback**: a tap next to the target shows a mark where the user tapped,
+  shakes the bubble, flashes the hint, vibrates and, after a few tries, a hand shows where to tap.
+- **Pass-through taps**: optionally the tap also reaches the real button, so the app reacts as usual.
+- **Back button and keyboard**: system back goes one step back (or blocks, or skips); on desktop
+  Enter, the arrow keys and Escape work. Free-roam steps can keep the user on their screen.
+- **Accessible**: screen readers read every step, offer continue / back / skip actions and see
+  only the tour while it blocks the app.
+- **Crash-safe**: an exception in one of your callbacks is reported to `onError`, never thrown
+  into your app.
+- **Customisable**: colors, shapes, sizes, texts, buttons, animations and behaviour, globally in
+  `TourSettings` or per step, also while the tour runs.
 - **Auto-scroll**: a target inside a scrollable container is scrolled to the middle of the screen.
+- **Follows moving targets**: the spotlight tracks its target while it scrolls, animates or
+  changes its layout.
 - **Survives recreation**: `rememberTapTargetController` keeps the current step across Android
   activity recreation (rotation) and process death.
 - **Skip button**: an optional composable slot, so you choose the text, language and style.
@@ -365,17 +382,151 @@ The button respects the safe drawing insets. It sits in the half of the screen o
 spotlight or free-roam bar, so it never covers the target. Pressing it calls
 `TapTargetController.skip()`, which also calls `onFinished`.
 
-## Settings
+## Wrong-tap feedback
+
+On a step with `requireExactTap = true` (the default), a tap next to the target does not
+continue. The user gets feedback, which `TourSettings.wrongTapFeedback` configures:
+
+```kotlin
+TourSettings(
+    wrongTapFeedback = WrongTapFeedback(
+        tapIndicator = true,    // expanding circle with a cross where the user tapped
+        shakeBubble = true,     // the bubble shakes
+        flashHint = true,       // "Tap the highlighted area" flashes in the feedback color
+        haptic = true,          // short "reject" vibration
+        pulseTarget = true,     // the ring around the target pulses once
+        showGuideAfter = 3,     // after 3 wrong taps a hand moves to the target (0 = never)
+        color = Color.Unspecified, // Unspecified = MaterialTheme.colorScheme.error
+    ),
+)
+```
+
+`WrongTapFeedback.None` switches everything off. `onWrongTap` (see
+[Callbacks and errors](#callbacks-and-errors)) reports every wrong tap.
+
+## Letting the tap reach the target
+
+By default a tap on the target only advances the tour; the composable underneath never gets it.
+With `passTapToTarget = true` the tap reaches the real composable too, so a button runs its own
+`onClick` (for example it navigates) and the tour advances at the same time:
+
+```kotlin
+tapStep(id = "appearance_entry", route = Route.Settings, passTapToTarget = true) {
+    TourTitle("Appearance")
+    TourDescription("Open the appearance settings.")
+}
+```
+
+Set it for all steps with `TourSettings(passTapToTarget = true)`. Taps outside the target still
+get the wrong-tap feedback.
+
+## Back button, keyboard and free-roam steps
+
+| Setting                 | Default        | Options                                                        |
+|-------------------------|----------------|----------------------------------------------------------------|
+| `backBehavior`          | `PreviousStep` | `PreviousStep`, `Block`, `SkipTour`, `PassThrough` (app handles it) |
+| `freeRoamBackBehavior`  | `PassThrough`  | Same options, for free-roam steps.                             |
+| `freeRoamLeaveBehavior` | `Allow`        | `Allow`, `ReturnToStepRoute`, `NextStep`, `SkipTour`           |
+| `keyboardNavigation`    | `true`         | Enter / Space / Right arrow: next, Left arrow: back, Escape: skip |
+
+`freeRoamLeaveBehavior` covers every other way of leaving a free-roam step's screen (the app's
+back arrow, a tab, a link). It needs a `route` on the step: the library checks `currentRoute`
+about every 200 ms and compares it with `isMatchingRoute`. To keep the user on the screen of a
+free-roam step:
+
+```kotlin
+TourSettings(
+    freeRoamBackBehavior = TourBackBehavior.Block,
+    freeRoamLeaveBehavior = FreeRoamLeaveBehavior.ReturnToStepRoute,
+)
+```
+
+The controller also has `previous()` and `goTo(index)` for your own buttons.
+
+Back handling uses `NavigationBackHandler` from `androidx.navigationevent`. If the host provides
+no `NavigationEventDispatcherOwner`, back handling is off (no crash). A screen that registers its
+own back handler after the tour started can take precedence.
+
+## Accessibility
+
+- Every step bubble is a live region, so TalkBack and VoiceOver read it when it appears.
+- The bubble offers the actions "Continue", "Back" and "Skip tour" (texts from `TourStrings`).
+- The highlighted area is a button for screen readers ("Highlighted element"); activating it
+  continues the tour.
+- While a blocking step shows, `TapTargetHost` hides the app from screen readers, so the focus
+  cannot get lost behind the scrim. Turn this off with `hideAppFromScreenReader = false`.
+
+## Callbacks and errors
 
 ```kotlin
 rememberTapTargetController(
     tour = onboardingTour,
-    tourSettings = TourSettings(
-        iconPadding = 4.dp,         // space between the target bounds and the spotlight edge
-        cornerRadius = 16.dp,       // corner radius of the spotlight hole
-        skipMissingTargets = true,  // skip steps whose target does not appear within 2 s
+    onStepShown = { index, step -> analytics.log("tour_step", index) },
+    onWrongTap = { index, position -> analytics.log("tour_wrong_tap", index) },
+    onSkipped = { index -> analytics.log("tour_skipped", index) },
+    onTargetMissing = { index, id -> log("Tour target $id not found") },
+    onFinished = { viewModel.onAction(AppAction.OnboardingFinished) },  // after the last step and on skip
+    onError = { error -> log(error) },
+)
+```
+
+**Crash safety**: every callback, `onNavigateToRoute`, `currentRoute`, `isMatchingRoute` and
+`beforeShow` runs inside a guard. An exception is passed to `onError` and the tour goes on (a step
+whose navigation failed waits for its target and is skipped if it never appears). The library
+also never crashes on detached or NaN target positions, unbounded layouts, missing haptics or a
+missing back dispatcher. Your own composables inside the bubbles are not guarded: Compose cannot
+catch exceptions thrown during composition.
+
+## Settings
+
+All fields have defaults. `rememberTapTargetController` applies a new `tourSettings` value on
+every composition, so settings can change while the tour runs (the demo app does this).
+
+```kotlin
+TourSettings(
+    iconPadding = 4.dp,                              // space between target bounds and spotlight edge
+    cornerRadius = 16.dp,                            // corner radius of a RoundedRect spotlight
+    spotlightShape = SpotlightShape.RoundedRect,     // or Pill, Oval, Circle (Circle falls back to Pill for wide or tall targets)
+    scrimColor = DefaultTourBackgroundColor,         // a step's backgroundColor overrides it
+    highlightColor = Color.Unspecified,              // outline, ring, guide hand; Unspecified = primary
+    spotlightBreathing = true,                       // the spotlight slowly grows and shrinks
+    showTapRing = true,                              // pulsing ring on exact-tap steps
+    skipMissingTargets = true,                       // skip steps whose target does not appear
+    targetTimeout = 2.seconds,                       // how long a step waits for its target
+    autoScroll = true,                               // scroll targets to the middle of the screen
+    passTapToTarget = false,                         // see "Letting the tap reach the target"
+    wrongTapFeedback = WrongTapFeedback(),           // see "Wrong-tap feedback"
+    backBehavior = TourBackBehavior.PreviousStep,    // see "Back button, keyboard and free-roam steps"
+    freeRoamBackBehavior = TourBackBehavior.PassThrough,
+    freeRoamLeaveBehavior = FreeRoamLeaveBehavior.Allow,
+    keyboardNavigation = true,
+    hideAppFromScreenReader = true,
+    bubble = BubbleStyle(
+        maxWidth = 260.dp,                           // bubble next to a spotlight
+        centeredMaxWidth = 280.dp,                   // card of info steps
+        shape = RoundedCornerShape(12.dp),
+        containerColor = Color.Unspecified,          // Unspecified = surface
+        contentColor = Color.Unspecified,            // Unspecified = contentColorFor(container)
+        shadowElevation = 4.dp,
+        contentPadding = PaddingValues(12.dp),
+        gap = 16.dp,                                 // distance between spotlight and bubble
+        showTapHint = true,                          // "Tap the highlighted area" row
+        tapHintIcon = Icons.Filled.TouchApp,
+        showProgress = false,                        // "2 / 9", text from TourStrings.stepProgress
     ),
 )
+```
+
+Per step, `tapStep` accepts `passTapToTarget`, `spotlightShape`, `backgroundColor` and
+`beforeShow`, which override the settings for that step.
+
+The free-roam Continue button can be replaced with the `continueButton` slot of `TapTargetHost`:
+
+```kotlin
+TapTargetHost(
+    controller = tourController,
+    continueButton = { text, onContinue -> OutlinedButton(onClick = onContinue) { Text(text) } },
+) { AppContent() }
 ```
 
 ## API reference
@@ -396,6 +547,11 @@ rememberTapTargetController(
 | `TapTargetController.isActive`      | `Boolean`          | `true` while the tour runs.                                           |
 | `TapTargetController.currentIndex`  | `Int`              | Index of the current step.                                            |
 | `TapTargetController.currentStep`   | `TourStep?`        | The current step, or `null` when the tour does not run.               |
+| `TapTargetController.previous()`    | function           | Goes back one step.                                                   |
+| `TapTargetController.goTo(index)`   | function           | Jumps to a step and starts the tour if needed.                        |
+| `TapTargetController.stepCount`     | `Int`              | Number of steps.                                                      |
+| `TapTargetController.isBlocking`    | `Boolean`          | `true` while a step shows that blocks the app (not free-roam).        |
+| `TapTargetController.tourSettings`  | `TourSettings`     | Current settings, writable at runtime.                                |
 | `TapTargetHost`                     | `@Composable` fun  | Root of the tour: provides the controller and draws the overlay.      |
 | `Modifier.tapTarget(id)`            | modifier           | Marks a composable as the target of the `tapStep` with the same id.   |
 | `LocalTapTargetController`          | `CompositionLocal` | The controller of the surrounding `TapTargetHost`, or `null`.         |
@@ -403,7 +559,12 @@ rememberTapTargetController(
 | `TourTitle`, `TourDescription`      | `@Composable` fun  | Default text styles for bubble content.                               |
 | `TourSkipButton`                    | `@Composable` fun  | Ready-made skip button.                                               |
 | `TourStrings`                       | data class         | Built-in overlay texts.                                               |
-| `TourSettings`                      | data class         | Spotlight padding, corner radius, missing-target behaviour.           |
+| `TourSettings`                      | data class         | Behaviour and look of the tour, see [Settings](#settings).            |
+| `WrongTapFeedback`                  | data class         | Feedback for taps next to the target.                                 |
+| `BubbleStyle`                       | data class         | Look of bubbles, cards and the free-roam bar.                         |
+| `SpotlightShape`                    | enum               | `RoundedRect`, `Pill`, `Oval`, `Circle` (square-ish targets only, else `Pill`). |
+| `TourBackBehavior`                  | enum               | `PreviousStep`, `Block`, `SkipTour`, `PassThrough`.                   |
+| `FreeRoamLeaveBehavior`             | enum               | `Allow`, `ReturnToStepRoute`, `NextStep`, `SkipTour`.                 |
 
 If you build the root layout yourself instead of using `TapTargetHost`, provide the controller with
 `CompositionLocalProvider(LocalTapTargetController provides controller)` and put
@@ -416,9 +577,11 @@ If you build the root layout yourself instead of using `TapTargetHost`, provide 
   only on the page that should be highlighted.
 - **Targets must be composed**: a target that is not in the composition is not found. The step is
   skipped after 2 seconds (or waits forever with `skipMissingTargets = false`).
-  - Items of a `LazyColumn` / `LazyRow` that are far off screen are **not** composed. Point the step
-    at a visible item, or scroll the list yourself before the step (for example in
-    `onNavigateToRoute`).
+  - Items of a `LazyColumn` / `LazyRow` that are far off screen are **not** composed. Scroll the
+    list in the step's `beforeShow`, which runs after the navigation and before the step waits:
+    ```kotlin
+    tapStep(id = "item_25", beforeShow = { listState.animateScrollToItem(24) }) { ... }
+    ```
   - Content of a normal `Column` with `verticalScroll` is always composed, so auto-scroll reaches it.
 - **Auto-scroll is vertical only**: a target inside a horizontal pager never swipes the pager to
   another page.
@@ -434,6 +597,7 @@ If you build the root layout yourself instead of using `TapTargetHost`, provide 
 | The spotlight is in the wrong place                  | `TapTargetHost` does not fill the window. Do not put padding or insets on its `modifier`.           |
 | The tour starts again after a rotation               | `start()` is called without a guard in a `LaunchedEffect`. See above.                               |
 | iOS crash with an `IrLinkage` error                  | material3 does not match the Compose Multiplatform version of your app. Use the material3 version listed next to your Compose Multiplatform version in its release notes. |
+| UI tests cannot find app nodes during a tour         | While a blocking step shows, `TapTargetHost` hides the app from the semantics tree (also test tags). Use `TourSettings(hideAppFromScreenReader = false)` in tests. |
 | `Could not find com.github.lerchenflo:kmp-taptarget` | The JitPack repository is missing in `settings.gradle.kts`, or the version tag does not exist. Open `https://jitpack.io/#lerchenflo/kmp-taptarget` to see the builds. |
 
 ## Demo app
@@ -455,15 +619,21 @@ The demo shows every feature in one tour:
 1. Welcome info step.
 2. Spotlight on the add button, exact tap required.
 3. Spotlight on the first item of a scrollable list, tap anywhere.
-4. Nested navigation: the tour opens a detail screen inside the Home tab and auto-scrolls to a card
+4. An item that starts off screen: `beforeShow` scrolls the lazy list to it. Tap next to it to see
+   the wrong-tap feedback, three times for the guide hand.
+5. Nested navigation: the tour opens a detail screen inside the Home tab and auto-scrolls to a card
    at the bottom of a long page.
-5. Custom bubble content with icons, pointing at the Settings tab.
-6. Tab switch: the tour moves to the Settings tab by itself.
-7. Free-roam step on a nested settings screen: toggle dark mode, then press Continue.
-8. Restart button that reads `LocalTapTargetController`.
-9. Goodbye info step, back on the Home tab.
+6. Custom bubble content with icons, pointing at the Settings tab.
+7. Tab switch and pass-through tap: the tour moves to the Settings tab, and the tap on
+   "Appearance" really opens it.
+8. Free-roam step on a nested settings screen: toggle dark mode, then press Continue.
+9. Restart button that reads `LocalTapTargetController`.
+10. Goodbye info step, back on the Home tab.
 
-Rotate the Android device during the tour: the current step survives.
+Rotate the Android device during the tour: the current step survives. The Settings tab has
+"Tour options" switches that change `TourSettings` while the tour runs (pass-through taps,
+wrong-tap feedback, circle spotlight, step progress, back behaviour, keeping the user on the
+free-roam screen). The callbacks are printed to the console.
 
 The demo code is a good template for your own integration:
 
@@ -537,7 +707,10 @@ This section is a compact, rule-based summary for tools that add the library to 
 - Do not create the controller with plain `remember { TapTargetController(...) }`: use
   `rememberTapTargetController`, so progress survives recreation.
 - Do not call `start()` in `LaunchedEffect(Unit)` without a guard.
-- Do not point a `tapStep` at a lazy list item that may be off screen.
+- A `tapStep` at a lazy list item that may be off screen needs a `beforeShow` that scrolls to it.
+- Use `passTapToTarget = true` when the target's own action (e.g. navigation) should run.
+- Wrap callbacks that may fail? Not needed: the library catches their exceptions; pass `onError`
+  to log them.
 - Do not register the same id on two composables that are on screen at the same time.
 - Use `MaterialTheme.colorScheme` in bubble content. Do not hardcode colors.
 - Put user-facing step texts in string resources. Use the `StringResource` builder variants or
@@ -557,15 +730,23 @@ class TourBuilder {
     fun freeRoamStep(route: Any? = null, position: FreeRoamBarPosition = FreeRoamBarPosition.Bottom, continueButtonText: String? = null, content: @Composable ColumnScope.() -> Unit)
     fun freeRoamStep(title: StringResource? = null, description: StringResource? = null, route: Any? = null, position: FreeRoamBarPosition = FreeRoamBarPosition.Bottom, continueButtonText: StringResource? = null)
 }
-@Composable fun rememberTapTargetController(tour: TapTargetTour, onNavigateToRoute: suspend (Any) -> Unit = {}, currentRoute: () -> Any? = { null }, isMatchingRoute: (targetRoute: Any, activeRoute: Any) -> Boolean = { t, a -> t::class == a::class }, onFinished: () -> Unit = {}, tourSettings: TourSettings = TourSettings()): TapTargetController
-@Composable fun TapTargetHost(controller: TapTargetController, modifier: Modifier = Modifier, strings: TourStrings = TourStrings(), skipButton: (@Composable (onSkip: () -> Unit) -> Unit)? = null, content: @Composable BoxScope.() -> Unit)
+// tapStep also takes: passTapToTarget: Boolean? = null, spotlightShape: SpotlightShape? = null, beforeShow: (suspend () -> Unit)? = null
+// infoStep and freeRoamStep also take: beforeShow: (suspend () -> Unit)? = null
+@Composable fun rememberTapTargetController(tour: TapTargetTour, onNavigateToRoute: suspend (Any) -> Unit = {}, currentRoute: () -> Any? = { null }, isMatchingRoute: (targetRoute: Any, activeRoute: Any) -> Boolean = { t, a -> t::class == a::class }, onFinished: () -> Unit = {}, tourSettings: TourSettings = TourSettings(), onStepShown: (index: Int, step: TourStep) -> Unit = { _, _ -> }, onSkipped: (index: Int) -> Unit = {}, onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> }, onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> }, onError: (Throwable) -> Unit = {}): TapTargetController
+class TapTargetController { fun start(); fun next(); fun previous(); fun goTo(index: Int); fun skip(); val isActive: Boolean; val isBlocking: Boolean; val currentIndex: Int; val stepCount: Int; val currentStep: TourStep?; var tourSettings: TourSettings }
+@Composable fun TapTargetHost(controller: TapTargetController, modifier: Modifier = Modifier, strings: TourStrings = TourStrings(), skipButton: (@Composable (onSkip: () -> Unit) -> Unit)? = null, continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)? = null, content: @Composable BoxScope.() -> Unit)
 fun Modifier.tapTarget(id: String): Modifier
 val LocalTapTargetController: ProvidableCompositionLocal<TapTargetController?>
 @Composable fun TourTitle(text: String, modifier: Modifier = Modifier, textAlign: TextAlign? = null)
 @Composable fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: TextAlign? = null)
 @Composable fun TourSkipButton(text: String, onSkip: () -> Unit, modifier: Modifier = Modifier)
-data class TourStrings(val tapHighlighted: String, val tapAnywhere: String, val continueButton: String)
-data class TourSettings(val iconPadding: Dp = 4.dp, val cornerRadius: Dp = 16.dp, val skipMissingTargets: Boolean = true)
+data class TourStrings(val tapHighlighted: String, val tapAnywhere: String, val continueButton: String, val skipTour: String, val previousStep: String, val highlightedTarget: String, val stepProgress: (current: Int, total: Int) -> String)
+data class TourSettings(/* see the Settings section for every field and its default */)
+data class WrongTapFeedback(val tapIndicator: Boolean = true, val shakeBubble: Boolean = true, val flashHint: Boolean = true, val haptic: Boolean = true, val pulseTarget: Boolean = true, val showGuideAfter: Int = 3, val color: Color = Color.Unspecified) { companion object { val None: WrongTapFeedback } }
+data class BubbleStyle(/* see the Settings section */)
+enum class SpotlightShape { RoundedRect, Circle, Pill, Oval }
+enum class TourBackBehavior { PreviousStep, Block, SkipTour, PassThrough }
+enum class FreeRoamLeaveBehavior { Allow, ReturnToStepRoute, NextStep, SkipTour }
 enum class FreeRoamBarPosition { Top, Center, Bottom }
 ```
 
