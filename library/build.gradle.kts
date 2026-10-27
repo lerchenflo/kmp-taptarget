@@ -1,3 +1,6 @@
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.KotlinMultiplatform
+import com.vanniktech.maven.publish.SourcesJar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -73,7 +76,28 @@ tasks.withType<JavaCompile>().configureEach {
     options.release.set(11)
 }
 
+// JitPack rewrites the Gradle module metadata and drops the classifier from every file name
+// ("x-1.0.0-metadata.jar" becomes "x-1.0.0.jar"). The IDE sync of Kotlin Multiplatform apps then
+// fails on the iOS metadata jar. So iOS files that carry a classifier are published a second time
+// without one, under the name the rewritten metadata points to.
+publishing {
+    publications.withType<MavenPublication>().matching { it.name.startsWith("ios") }.configureEach {
+        val publicationName = name
+        for ((configurationName, fileExtension) in listOf("MetadataElements" to "jar", "ResourcesElements" to "zip")) {
+            val outgoing = configurations.findByName(publicationName + configurationName)?.outgoing?.artifacts ?: continue
+            artifact(provider { outgoing.files.singleFile }) {
+                classifier = null
+                extension = fileExtension
+                builtBy(outgoing.buildDependencies)
+            }
+        }
+    }
+}
+
 mavenPublishing {
+
+    // No sources jars: JitPack's rewritten metadata would point their variants to the wrong files
+    configure(KotlinMultiplatform(javadocJar = JavadocJar.Empty(), sourcesJar = SourcesJar.None()))
 
     coordinates(group.toString(), "kmp-taptarget", version.toString())
 
