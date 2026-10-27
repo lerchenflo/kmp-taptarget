@@ -8,7 +8,10 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
-group = "com.github.lerchenflo"
+// Same group JitPack serves a multi-module repo under. With any other group JitPack moves the
+// artifacts and rewrites the Gradle module metadata, dropping the "-metadata" / "-sources" classifiers
+// from the file names, which breaks the IDE sync of Kotlin Multiplatform apps (iOS metadata jar not found)
+group = "com.github.lerchenflo.kmp-taptarget"
 //JitPack passes the git tag as -Pversion, local builds get a snapshot version
 version = providers.gradleProperty("version").getOrElse("1.0.0-SNAPSHOT")
 
