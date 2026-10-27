@@ -602,6 +602,7 @@ If you build the root layout yourself instead of using `TapTargetHost`, provide 
 | The tour starts again after a rotation               | `start()` is called without a guard in a `LaunchedEffect`. See above.                               |
 | iOS crash with an `IrLinkage` error                  | material3 does not match the Compose Multiplatform version of your app. Use the material3 version listed next to your Compose Multiplatform version in its release notes. |
 | UI tests cannot find app nodes during a tour         | While a blocking step shows, `TapTargetHost` hides the app from the semantics tree (also test tags). Use `TourSettings(hideAppFromScreenReader = false)` in tests. |
+| Sync fails: `Could not find kmp-taptarget-iosarm64-1.0.0.jar` | Version 1.0.0 is affected by JitPack's metadata rewrite. Use 1.0.1 or newer. |
 | `No matching variant of ...:kmp-taptarget-android` | The short coordinate `com.github.lerchenflo:kmp-taptarget` was used. Use `com.github.lerchenflo.kmp-taptarget:kmp-taptarget`. |
 | `Could not find com.github.lerchenflo.kmp-taptarget:kmp-taptarget` | The JitPack repository is missing in `settings.gradle.kts`, or the version tag does not exist. Open `https://jitpack.io/#lerchenflo/kmp-taptarget` to see the builds. |
 
@@ -676,6 +677,12 @@ Sync Gradle, and the app builds against your local changes. Remove the block bef
    for the build. JitPack also builds a tag the first time an app asks for it, but then that first
    Gradle sync waits for the build.
 5. Raise the version in the apps' `libs.versions.toml`.
+
+JitPack rewrites the Gradle module metadata and drops the classifier from every file name
+(`x-1.0.0-metadata.jar` becomes `x-1.0.0.jar`). `library/build.gradle.kts` therefore publishes the
+iOS metadata jar and the iOS resources zip a second time without classifier, and publishes no
+sources jars. Without this, the Android Studio sync of apps fails with
+`Could not find kmp-taptarget-iosarm64-<version>.jar`. Keep this when changing the build.
 
 How the JitPack build works: `jitpack.yml` tells JitPack to run
 `./gradlew :library:publishToMavenLocal -Pversion=<tag>` with JDK 25 on Linux. The example apps are
