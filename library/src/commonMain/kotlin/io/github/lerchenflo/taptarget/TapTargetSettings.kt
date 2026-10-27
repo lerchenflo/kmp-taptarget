@@ -24,6 +24,7 @@ import kotlin.time.Duration.Companion.seconds
  * @param previousStep       Screen reader action that goes back one step.
  * @param highlightedTarget  Screen reader description of the highlighted area.
  * @param stepProgress       Progress text, shown when [BubbleStyle.showProgress] is on.
+ * @param gotIt              Button of [TourBuilder.highlightStep] steps (a step can override it).
  */
 @Immutable
 data class TourStrings(
@@ -34,6 +35,7 @@ data class TourStrings(
     val previousStep: String = "Back",
     val highlightedTarget: String = "Highlighted element",
     val stepProgress: (current: Int, total: Int) -> String = { current, total -> "$current / $total" },
+    val gotIt: String = "Got it",
 )
 
 /** Shape of the hole the spotlight cuts around a target. */
@@ -167,6 +169,7 @@ data class BubbleStyle(
  *                                 Unspecified: `MaterialTheme.colorScheme.primary`.
  * @param spotlightBreathing       The spotlight slowly grows and shrinks, so the eye finds it.
  * @param showTapRing              Pulsing ring around the target on steps that need an exact tap.
+ * @param dashedHighlightOutline   [TourBuilder.highlightStep] steps get a dashed outline (else solid).
  * @param skipMissingTargets       Skip a step whose target does not appear within [targetTimeout],
  *                                 instead of waiting forever.
  * @param targetTimeout            How long a step waits for its target.
@@ -193,6 +196,7 @@ data class TourSettings(
     val highlightColor: Color = Color.Unspecified,
     val spotlightBreathing: Boolean = true,
     val showTapRing: Boolean = true,
+    val dashedHighlightOutline: Boolean = true,
     val skipMissingTargets: Boolean = true,
     val targetTimeout: Duration = 2.seconds,
     val autoScroll: Boolean = true,

@@ -245,6 +245,7 @@ cannot drift apart.
 | Builder function | Spotlight | Blocks the app | Advances on                                                   |
 |------------------|-----------|----------------|---------------------------------------------------------------|
 | `tapStep`        | yes       | yes            | a tap on the target, or anywhere if `requireExactTap = false` |
+| `highlightStep`  | yes, calm and dashed | yes | the "Got it" button or a tap anywhere (only informs)      |
 | `infoStep`       | no        | yes            | a tap anywhere                                                |
 | `freeRoamStep`   | no        | no             | the Continue button in the hint bar                           |
 
@@ -278,6 +279,24 @@ Parameters:
 | `backgroundColor`    | `tapStep`, `infoStep` | Scrim color. Default: `DefaultTourBackgroundColor` (black, 55 % opacity).     |
 | `position`           | `freeRoamStep`        | Hint bar position: `Top`, `Center` or `Bottom`.                               |
 | `continueButtonText` | `freeRoamStep`        | Continue button label. Falls back to `TourStrings.continueButton`.            |
+
+### Highlight steps
+
+Use `highlightStep` for an element the user should know about but not press now (for example
+"here you can create groups later"). The outline is calm and dashed, there is no pulse ring, the
+bubble shows an info icon and a "Got it" button, and a tap anywhere continues as well:
+
+```kotlin
+highlightStep(
+    id = "create_group_button",
+    title = Res.string.tour_create_group_title,
+    description = Res.string.tour_create_group_description,
+)
+```
+
+The button text comes from `TourStrings.gotIt` or the step's `buttonText`, the button itself can be
+replaced with the `continueButton` slot of `TapTargetHost`, and `dashedHighlightOutline = false`
+in `TourSettings` draws a solid outline instead.
 
 ## Custom bubble content
 
@@ -624,7 +643,7 @@ The demo shows every feature in one tour:
 
 1. Welcome info step.
 2. Spotlight on the add button, exact tap required.
-3. Spotlight on the first item of a scrollable list, tap anywhere.
+3. Highlight step on the first item of a scrollable list: calm dashed outline, "Got it" button.
 4. An item that starts off screen: `beforeShow` scrolls the lazy list to it. Tap next to it to see
    the wrong-tap feedback, three times for the guide hand.
 5. Nested navigation: the tour opens a detail screen inside the Home tab and auto-scrolls to a card
@@ -737,6 +756,8 @@ fun tapTargetTour(builder: TourBuilder.() -> Unit): TapTargetTour
 class TourBuilder {
     fun tapStep(id: String, route: Any? = null, backgroundColor: Color = DefaultTourBackgroundColor, requireExactTap: Boolean = true, content: @Composable ColumnScope.() -> Unit)
     fun tapStep(id: String, title: StringResource? = null, description: StringResource? = null, route: Any? = null, backgroundColor: Color = DefaultTourBackgroundColor, requireExactTap: Boolean = true)
+    fun highlightStep(id: String, route: Any? = null, backgroundColor: Color = Color.Unspecified, spotlightShape: SpotlightShape? = null, buttonText: String? = null, beforeShow: (suspend () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit)
+    fun highlightStep(id: String, title: StringResource? = null, description: StringResource? = null, route: Any? = null, backgroundColor: Color = Color.Unspecified, buttonText: StringResource? = null, beforeShow: (suspend () -> Unit)? = null, spotlightShape: SpotlightShape? = null)
     fun infoStep(route: Any? = null, backgroundColor: Color = DefaultTourBackgroundColor, content: @Composable ColumnScope.() -> Unit)
     fun infoStep(title: StringResource? = null, description: StringResource? = null, route: Any? = null, backgroundColor: Color = DefaultTourBackgroundColor)
     fun freeRoamStep(route: Any? = null, position: FreeRoamBarPosition = FreeRoamBarPosition.Bottom, continueButtonText: String? = null, content: @Composable ColumnScope.() -> Unit)

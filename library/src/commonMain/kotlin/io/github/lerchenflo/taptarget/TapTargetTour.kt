@@ -33,6 +33,8 @@ val DefaultTourBackgroundColor: Color = Color.Black.copy(alpha = 0.55f)
  * @param backgroundColor  Scrim color. Unspecified: [TourSettings.scrimColor].
  * @param passTapToTarget  Overrides [TourSettings.passTapToTarget] for this step. Null: use the setting.
  * @param spotlightShape   Overrides [TourSettings.spotlightShape] for this step. Null: use the setting.
+ * @param highlightOnly    The step only shows the target: calm dashed outline, a "Got it" button,
+ *                         a tap anywhere continues. See [TourBuilder.highlightStep].
  * @param beforeShow       Runs after the navigation to [route] and before the step waits for its
  *                         target, e.g. to scroll a lazy list to an item that is not composed yet.
  * @param content          Optional content of the info bubble.
@@ -54,6 +56,7 @@ class TourStep(
     val passTapToTarget: Boolean? = null,
     val spotlightShape: SpotlightShape? = null,
     val beforeShow: (suspend () -> Unit)? = null,
+    val highlightOnly: Boolean = false,
     val content: TourStepContent? = null,
 )
 
@@ -64,6 +67,7 @@ internal enum class TapHint { EXACT, ANYWHERE }
 internal val TourStep.tapHint: TapHint?
     get() = when {
         freeRoamPosition != null -> null
+        highlightOnly -> null   // shows a "Got it" button instead of a hint
         id == null -> TapHint.ANYWHERE
         requireExactTap -> TapHint.EXACT
         else -> TapHint.ANYWHERE
@@ -139,6 +143,58 @@ class TourBuilder {
             passTapToTarget = passTapToTarget,
             spotlightShape = spotlightShape,
             beforeShow = beforeShow,
+            content = resourceContent(title, description),
+        )
+    }
+
+    /**
+     * Adds a step that only points at the composable registered with [tapTarget] ([id]), for
+     * information: the outline is calm and dashed (no pulse), the bubble has an info icon and a
+     * "Got it" button ([buttonText], default [TourStrings.gotIt]), and a tap anywhere continues.
+     * Use it for elements the user should know about but not press now.
+     */
+    fun highlightStep(
+        id: String,
+        route: Any? = null,
+        backgroundColor: Color = Color.Unspecified,
+        spotlightShape: SpotlightShape? = null,
+        buttonText: String? = null,
+        beforeShow: (suspend () -> Unit)? = null,
+        content: TourStepContent,
+    ) {
+        steps += TourStep(
+            id = id,
+            route = route,
+            backgroundColor = backgroundColor,
+            continueButtonText = buttonText?.let { text -> { text } },
+            requireExactTap = false,
+            spotlightShape = spotlightShape,
+            beforeShow = beforeShow,
+            highlightOnly = true,
+            content = content,
+        )
+    }
+
+    fun highlightStep(
+        id: String,
+        title: StringResource? = null,
+        description: StringResource? = null,
+        route: Any? = null,
+        backgroundColor: Color = Color.Unspecified,
+        buttonText: StringResource? = null,
+        beforeShow: (suspend () -> Unit)? = null,
+        // Not a function type as last parameter, so a trailing lambda always picks the slot variant
+        spotlightShape: SpotlightShape? = null,
+    ) {
+        steps += TourStep(
+            id = id,
+            route = route,
+            backgroundColor = backgroundColor,
+            continueButtonText = buttonText?.let { res -> { stringResource(res) } },
+            requireExactTap = false,
+            spotlightShape = spotlightShape,
+            beforeShow = beforeShow,
+            highlightOnly = true,
             content = resourceContent(title, description),
         )
     }

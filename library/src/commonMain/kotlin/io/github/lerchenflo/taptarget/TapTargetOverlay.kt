@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -64,6 +65,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
@@ -300,7 +302,7 @@ private fun TourStepLayer(
         return
     }
 
-    SpotlightTourStep(controller, step, strings)
+    SpotlightTourStep(controller, step, strings, continueButton)
 }
 
 /** Animations of the feedback for taps next to the target. Created once per step. */
@@ -392,7 +394,12 @@ private fun spotlightPath(bounds: Rect, shape: SpotlightShape, cornerRadiusPx: F
 }
 
 @Composable
-private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, strings: TourStrings) {
+private fun SpotlightTourStep(
+    controller: TapTargetController,
+    step: TourStep,
+    strings: TourStrings,
+    continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)?,
+) {
     val target = controller.currentTarget ?: return   // not laid out yet → draw nothing
     // Bounds of a target that is detached or laid out in an odd place: draw nothing rather than crash
     if (!target.bounds.isFinite) return
@@ -476,13 +483,19 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
 
         // ── Scrim with punched-out spotlight ─────────────────────────
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val breathing = if (settings.spotlightBreathing) spotlightPulseProgress else 0f
+            // Highlight steps stay calm: they only inform, nothing to tap
+            val breathing = if (settings.spotlightBreathing && !step.highlightOnly) spotlightPulseProgress else 0f
             val pulse = spotlightPulse(breathing, spotlightInflatePx)
             val hole = spotlightPath(spotlight.inflate(pulse.inflatePx), shape, cornerRadiusPx + pulse.inflatePx)
             val scrim = Path().apply { addRect(size.toRect()) }
             drawPath(Path().apply { op(scrim, hole, PathOperation.Difference) }, color = scrimColor)
             drawPath(hole, color = highlightColor, alpha = pulse.fillAlpha)
-            drawPath(hole, color = highlightColor, alpha = pulse.outlineAlpha, style = Stroke(width = outlineStrokePx))
+            val outlineEffect = if (step.highlightOnly && settings.dashedHighlightOutline) {
+                PathEffect.dashPathEffect(floatArrayOf(outlineStrokePx * 3f, outlineStrokePx * 2f))
+            } else {
+                null
+            }
+            drawPath(hole, color = highlightColor, alpha = pulse.outlineAlpha, style = Stroke(width = outlineStrokePx, pathEffect = outlineEffect))
 
             // Draw a pulsing ring around the hole to signal "tap exactly here".
             if (settings.showTapRing && step.tapHint == TapHint.EXACT) {
@@ -525,7 +538,7 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
 
         // ── Info bubble ──────────────────────────────────────────────
         val showHint = bubbleStyle.showTapHint && step.tapHint != null
-        if (step.content != null || showHint || bubbleStyle.showProgress) {
+        if (step.content != null || showHint || bubbleStyle.showProgress || step.highlightOnly) {
 
             // Horizontal: keep within [edgePadding, screenWidth - bubbleWidth - edgePadding]
             val clampedX = spotlight.left
@@ -569,7 +582,17 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
                     modifier = Modifier.tourStepSemantics(controller, strings),
                 ) {
                     StepProgress(controller, strings, bubbleStyle)
-                    step.content?.invoke(this)
+                    if (step.highlightOnly) {
+                        HighlightBubbleContent(
+                            step = step,
+                            iconColor = highlightColor,
+                            buttonText = step.continueButtonText?.invoke() ?: strings.gotIt,
+                            continueButton = continueButton,
+                            onContinue = { controller.next() },
+                        )
+                    } else {
+                        step.content?.invoke(this)
+                    }
                     if (showHint) {
                         TapHintRow(
                             hint = step.tapHint,
@@ -604,6 +627,37 @@ private fun SpotlightTourStep(controller: TapTargetController, step: TourStep, s
                         alpha = if (progress >= 1f) 0f else 1f - ((progress - 0.8f) / 0.2f).coerceIn(0f, 1f)
                     },
             )
+        }
+    }
+}
+
+/** Bubble of a highlight step: info icon next to the content, "Got it" button below. */
+@Composable
+private fun HighlightBubbleContent(
+    step: TourStep,
+    iconColor: Color,
+    buttonText: String,
+    continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)?,
+    onContinue: () -> Unit,
+) {
+    Row {
+        Icon(
+            imageVector = Icons.Filled.Info,
+            contentDescription = null,
+            tint = iconColor,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            step.content?.invoke(this)
+        }
+    }
+    // The button consumes its tap, so the overlay's "tap anywhere" does not advance a second time
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        if (continueButton != null) {
+            continueButton(buttonText, onContinue)
+        } else {
+            FilledTonalButton(onClick = onContinue) { Text(buttonText) }
         }
     }
 }

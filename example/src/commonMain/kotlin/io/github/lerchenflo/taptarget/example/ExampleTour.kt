@@ -50,15 +50,17 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
         TourDescription("Only a tap on the highlighted button continues. The tap does not reach the button itself.")
     }
 
-    tapStep(
+    highlightStep(
         id = ExampleTargets.FIRST_ITEM,
         route = ExampleRoute.Home,
-        requireExactTap = false,
         // After a restart the list may still be scrolled down, where the first item is not composed
         beforeShow = { homeListState.scrollToItem(0) },
     ) {
-        TourTitle("Tap anywhere")
-        TourDescription("This step only points at something. A tap anywhere continues.")
+        TourTitle("Highlight step")
+        TourDescription(
+            "Only points at something the user should know about, like this list. Dashed calm outline, " +
+                "no tap needed: press Got it or tap anywhere."
+        )
     }
 
     tapStep(
