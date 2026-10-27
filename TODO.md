@@ -1,0 +1,146 @@
+# TODO
+
+Open work on the library, top to bottom. Tick an item when it is done and committed.
+Goal (user, 2026-10-27): implement every improvement below and expose as many options as possible,
+so apps can customise the library without opening a pull request.
+
+Rules for this work:
+- Keep the public API backwards compatible where possible (new parameters get defaults that keep
+  today's behaviour, unless stated otherwise below).
+- Colors default to `Color.Unspecified` and fall back to `MaterialTheme.colorScheme` at draw time.
+  Never hardcode colors except `DefaultTourBackgroundColor`.
+- Animations read their values in the draw / layout phase (`graphicsLayer`, `drawWithContent`,
+  `offset {}` lambdas), never in composition.
+- Compile check after each step (desktop machine, compile tasks only):
+  `./gradlew :library:compileKotlinJvm :library:compileAndroidMain :library:compileKotlinIosSimulatorArm64 :library:compileTestKotlinJvm :example:compileKotlinJvm :example-android:compileDebugKotlin`
+- Commit and push to `main` after each finished step.
+
+## 1. Settings model (`TapTargetSettings.kt`, new file)
+
+- [ ] Move `TourStrings` out of `TapTargetOverlay.kt` into the new file and add:
+  `skipTour = "Skip tour"`, `previousStep = "Back"`, `highlightedTarget = "Highlighted element"`,
+  `stepProgress: (current: Int, total: Int) -> String = { c, t -> "$c / $t" }`.
+- [ ] `TourSettings` gets these fields (old ones keep their names and defaults):
+  - `iconPadding: Dp = 4.dp`, `cornerRadius: Dp = 16.dp` (existing)
+  - `spotlightShape: SpotlightShape = SpotlightShape.RoundedRect` (enum `RoundedRect`, `Circle`)
+  - `scrimColor: Color = DefaultTourBackgroundColor` (used when a step has no own color)
+  - `highlightColor: Color = Color.Unspecified` (outline, ring, guide hand; fallback `primary`)
+  - `spotlightBreathing: Boolean = true`, `showTapRing: Boolean = true`
+  - `skipMissingTargets: Boolean = true` (existing), `targetTimeout: Duration = 2.seconds`
+  - `autoScroll: Boolean = true`
+  - `passTapToTarget: Boolean = false`
+  - `wrongTapFeedback: WrongTapFeedback = WrongTapFeedback()`
+  - `backBehavior: TourBackBehavior = TourBackBehavior.PreviousStep`
+    (enum `PreviousStep`, `Block`, `SkipTour`, `PassThrough`)
+  - `keyboardNavigation: Boolean = true`
+  - `hideAppFromScreenReader: Boolean = true`
+  - `bubble: BubbleStyle = BubbleStyle()`
+- [ ] `WrongTapFeedback(tapIndicator, shakeBubble, flashHint, haptic, pulseTarget: Boolean = true,
+  showGuideAfter: Int = 3 (0 = never), color: Color = Color.Unspecified (fallback error))`
+  plus `companion val None` with everything off.
+- [ ] `BubbleStyle(maxWidth = 260.dp, centeredMaxWidth = 280.dp, shape = RoundedCornerShape(12.dp),
+  containerColor/contentColor = Color.Unspecified (surface / contentColorFor), shadowElevation = 4.dp,
+  contentPadding = PaddingValues(12.dp), gap = 16.dp (target to bubble), showTapHint = true,
+  tapHintIcon: ImageVector = Icons.Filled.TouchApp, showProgress = false)`.
+- [ ] `TapTargetController.tourSettings` becomes a public `var` backed by `mutableStateOf`, so apps
+  (and the demo) can change settings at runtime. `rememberTapTargetController` writes the latest
+  `tourSettings` into it on every composition (`SideEffect`).
+
+## 2. Steps and controller
+
+- [ ] `TourStep` gets per-step overrides: `passTapToTarget: Boolean? = null`,
+  `spotlightShape: SpotlightShape? = null`, `beforeShow: (suspend () -> Unit)? = null`.
+  `backgroundColor` default becomes `Color.Unspecified` (falls back to `TourSettings.scrimColor`).
+  Add the new parameters (with defaults) to every `tapStep` / `infoStep` / `freeRoamStep` overload.
+- [ ] Controller: `previous()`, `goTo(index)`, `stepCount`, `isBlocking` (active and not free-roam).
+- [ ] Controller callbacks (also on `rememberTapTargetController`, all through `rememberUpdatedState`):
+  `onStepShown(index, step)`, `onSkipped(index)`, `onWrongTap(index, offset)`,
+  `onTargetMissing(index, id)`. `onFinished` stays (called on finish and on skip).
+- [ ] `ensureCurrentStepVisible`: after navigating, run `step.beforeShow`, then wait
+  `tourSettings.targetTimeout`.
+- [ ] Missing target while going backwards (after `previous()`) skips backwards, not forwards
+  (remember the direction of the last move).
+- [ ] Internal `onTargetTapped(id)`: advances only when the tour runs, the current step has this id
+  and the step lets the tap through.
+
+## 3. Wrong-tap feedback (main problem: a tap next to the target gives no visible feedback)
+
+All parts can be switched off one by one with `WrongTapFeedback`.
+
+- [ ] Tap indicator: an expanding, fading circle with a small cross at the tap position, in the
+  feedback color.
+- [ ] Shake the bubble horizontally (keyframes, about 400 ms, `graphicsLayer { translationX }`).
+- [ ] Flash the tap hint row in the feedback color and scale it up a bit for about 1.2 s
+  (offscreen layer + `drawWithContent` with `BlendMode.SrcAtop`, no recomposition per frame).
+- [ ] Haptic feedback `HapticFeedbackType.Reject` (no-op where the platform has none).
+- [ ] Keep the existing ring boost around the target (`pulseTarget`).
+- [ ] Guide hand: after `showGuideAfter` wrong taps in a row, animate the `TouchApp` icon from the
+  last wrong tap to the target center.
+- [ ] Call `onWrongTap(index, offset)`.
+
+## 4. Let the real tap through (`passTapToTarget`)
+
+- [ ] When on (global or per step), the overlay leaves the spotlight hole free: four pointer areas
+  around the hole catch taps (wrong taps, or "tap anywhere"), the hole itself gets no pointer input,
+  so the real composable below receives the tap.
+- [ ] `TapTargetNode` also implements `PointerInputModifierNode`: watches the `Final` pass without
+  consuming, counts down + up inside its bounds within touch slop as a tap, then calls
+  `controller.onTargetTapped(id)`.
+
+## 5. System back and keyboard
+
+- [ ] Overlay uses `NavigationBackHandler` (navigationevent-compose, add to the library catalog)
+  while a blocking step shows: `PreviousStep` (on the first step: do nothing), `Block`, `SkipTour`;
+  `PassThrough` disables the handler. Free-roam steps never intercept back.
+- [ ] `keyboardNavigation`: the overlay takes focus during blocking steps; Enter / Space /
+  Right arrow = next (also activates the target on exact steps), Left arrow = previous,
+  Escape = skip.
+
+## 6. Accessibility
+
+- [ ] Bubble: `liveRegion = Polite`, so screen readers read each new step; custom actions
+  "continue", "back" and "skip" (labels from `TourStrings`).
+- [ ] A semantics-only node over the spotlight hole: `Role.Button`, description
+  `strings.highlightedTarget`, `onClick` = next (no pointer input, so pass-through still works).
+- [ ] `TapTargetHost` hides the app content from screen readers (`clearAndSetSemantics {}`) while a
+  blocking step shows, if `hideAppFromScreenReader`.
+
+## 7. Overlay customisation slots
+
+- [ ] `TapTargetHost` / `TapTargetOverlay` get `continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)? = null`
+  for the free-roam bar (default: `Button`).
+- [ ] Bubble and centered card use `BubbleStyle`; optional step progress text (`showProgress`).
+- [ ] `SpotlightShape.Circle`: circle around the target center (radius = half the longer side
+  plus padding); hole, outline and ring follow the shape.
+
+## 8. Lazy lists
+
+- [ ] Document `beforeShow` for off-screen lazy items, for example
+  `tapStep(id = "item_25", beforeShow = { listState.scrollToItem(24) })`.
+- [ ] Remove the matching P4 item from `SchneaggchatV3/plans/Todo.md` once this is released.
+
+## 9. Demo app
+
+- [ ] Home list: hoist `LazyListState`, build the tour in `remember(listState)`, add a step for a
+  far item (`beforeShow` scroll).
+- [ ] Settings tab gets a "Tour options" section with switches that change `tourSettings` live:
+  pass tap through, wrong-tap feedback on/off, circle spotlight, show progress, back = previous
+  step / block.
+- [ ] The "Appearance" step uses `passTapToTarget = true` (the real tap opens the screen).
+- [ ] Log the callbacks (`println`) to show they exist.
+
+## 10. Tests (compile only unless the user asks to run them)
+
+- [ ] Controller: `previous()`, `goTo()`, `restoreState`, backwards skipping.
+- [ ] Wrong tap calls `onWrongTap` and does not advance; tap on target advances.
+- [ ] Pass-through: the target's own `onClick` runs and the tour advances.
+- [ ] `Modifier.tapTarget` unregisters when it leaves the composition.
+
+## 11. Docs and release prep
+
+- [ ] README: new sections (wrong-tap feedback, pass-through, back and keyboard, accessibility,
+  callbacks, lazy lists, runtime settings), update Settings, API reference, AI guide and the
+  demo list.
+- [ ] Check KDoc of every public symbol.
+- [ ] Release only after the user has checked the demo (user: JitPack is not important now).
+  JitPack answered 502 for the test build of commit `51669f8`; retry when releasing.
