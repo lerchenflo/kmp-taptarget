@@ -3,6 +3,7 @@ package io.github.lerchenflo.taptarget.example
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -21,6 +22,7 @@ import io.github.lerchenflo.taptarget.tapTargetTour
 object ExampleTargets {
     const val ADD_BUTTON = "add_button"
     const val FIRST_ITEM = "first_item"
+    const val FAR_ITEM = "far_item"
     const val DETAIL_NOTES = "detail_notes"
     const val SETTINGS_TAB = "settings_tab"
     const val APPEARANCE_ENTRY = "appearance_entry"
@@ -30,8 +32,14 @@ object ExampleTargets {
 /** The item whose detail screen the tour opens. */
 const val TOUR_ITEM_ID = 3
 
-/** One step per library feature, in the order a user meets them. */
-val exampleTour: TapTargetTour = tapTargetTour {
+/** Index of the list item that starts off screen. The tour scrolls the list to it first. */
+const val FAR_ITEM_INDEX = 24
+
+/**
+ * One step per library feature, in the order a user meets them.
+ * [homeListState] is the state of the Home list, so a step can scroll it before it shows.
+ */
+fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
     infoStep(route = ExampleRoute.Home) {
         TourTitle("Welcome")
         TourDescription("This demo shows every feature of kmp-taptarget. Follow the steps or skip the tour at any time.")
@@ -42,9 +50,28 @@ val exampleTour: TapTargetTour = tapTargetTour {
         TourDescription("Only a tap on the highlighted button continues. The tap does not reach the button itself.")
     }
 
-    tapStep(id = ExampleTargets.FIRST_ITEM, route = ExampleRoute.Home, requireExactTap = false) {
+    tapStep(
+        id = ExampleTargets.FIRST_ITEM,
+        route = ExampleRoute.Home,
+        requireExactTap = false,
+        // After a restart the list may still be scrolled down, where the first item is not composed
+        beforeShow = { homeListState.scrollToItem(0) },
+    ) {
         TourTitle("Tap anywhere")
         TourDescription("This step only points at something. A tap anywhere continues.")
+    }
+
+    tapStep(
+        id = ExampleTargets.FAR_ITEM,
+        route = ExampleRoute.Home,
+        // Lazy list items off screen are not composed, so scroll there before the step waits
+        beforeShow = { homeListState.animateScrollToItem(FAR_ITEM_INDEX - 2) },
+    ) {
+        TourTitle("Wrong-tap feedback")
+        TourDescription(
+            "This item was off screen, beforeShow scrolled the list here. Tap next to it to see " +
+                "the feedback, tap three times to get the guide hand."
+        )
     }
 
     tapStep(
@@ -70,9 +97,14 @@ val exampleTour: TapTargetTour = tapTargetTour {
         }
     }
 
-    tapStep(id = ExampleTargets.APPEARANCE_ENTRY, route = ExampleRoute.Settings) {
-        TourTitle("Other tab")
-        TourDescription("The tour switched to the Settings tab by itself.")
+    tapStep(
+        id = ExampleTargets.APPEARANCE_ENTRY,
+        route = ExampleRoute.Settings,
+        // The real tap opens the Appearance screen, the tour follows
+        passTapToTarget = true,
+    ) {
+        TourTitle("Pass-through tap")
+        TourDescription("The tour switched to the Settings tab. Your tap on Appearance really opens it.")
     }
 
     freeRoamStep(route = ExampleRoute.Appearance, position = FreeRoamBarPosition.Bottom) {
@@ -87,6 +119,9 @@ val exampleTour: TapTargetTour = tapTargetTour {
 
     infoStep(route = ExampleRoute.Home) {
         TourTitle("Done")
-        TourDescription("Rotate the device during the tour: the current step survives. See the README to build your own tour.")
+        TourDescription(
+            "Rotate the device during the tour: the current step survives. Try the tour options " +
+                "in Settings, back goes one step back, and on desktop the arrow keys, Enter and Escape work."
+        )
     }
 }

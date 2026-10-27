@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -38,12 +39,14 @@ import io.github.lerchenflo.taptarget.tapTarget
 /** Home tab root: a scrollable list. The first item is a tour target. */
 @Composable
 fun HomeScreen(
+    listState: LazyListState,
     itemIds: List<Int>,
     onItemClick: (itemId: Int) -> Unit,
     contentPadding: PaddingValues,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(contentPadding),
+        state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -52,7 +55,13 @@ fun HomeScreen(
                 onClick = { onItemClick(itemId) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (index == 0) Modifier.tapTarget(ExampleTargets.FIRST_ITEM) else Modifier),
+                    .then(
+                        when (index) {
+                            0 -> Modifier.tapTarget(ExampleTargets.FIRST_ITEM)
+                            FAR_ITEM_INDEX -> Modifier.tapTarget(ExampleTargets.FAR_ITEM)
+                            else -> Modifier
+                        }
+                    ),
             ) {
                 ListItem(
                     headlineContent = { Text("Item $itemId") },
@@ -104,7 +113,11 @@ fun ItemDetailScreen(itemId: Int, contentPadding: PaddingValues) {
 
 /** Settings tab root. */
 @Composable
-fun SettingsScreen(onAppearanceClick: () -> Unit, contentPadding: PaddingValues) {
+fun SettingsScreen(
+    tourOptions: DemoTourOptions,
+    onAppearanceClick: () -> Unit,
+    contentPadding: PaddingValues,
+) {
     var notificationsEnabled by rememberSaveable { mutableStateOf(true) }
     // Any screen below TapTargetHost can read the controller, e.g. to restart the tour
     val tourController = LocalTapTargetController.current
@@ -139,6 +152,18 @@ fun SettingsScreen(onAppearanceClick: () -> Unit, contentPadding: PaddingValues)
             leadingContent = { Icon(Icons.Filled.Info, contentDescription = null) },
         )
 
+        Text(
+            "Tour options",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp),
+        )
+        TourOptionSwitch("Pass taps to the target", tourOptions.passTapToTarget) { tourOptions.passTapToTarget = it }
+        TourOptionSwitch("Wrong-tap feedback", tourOptions.wrongTapFeedback) { tourOptions.wrongTapFeedback = it }
+        TourOptionSwitch("Circle spotlight", tourOptions.circleSpotlight) { tourOptions.circleSpotlight = it }
+        TourOptionSwitch("Show step progress", tourOptions.showProgress) { tourOptions.showProgress = it }
+        TourOptionSwitch("Back blocks (instead of previous step)", tourOptions.backBlocks) { tourOptions.backBlocks = it }
+
         Button(
             onClick = { tourController?.start() },
             modifier = Modifier
@@ -148,6 +173,14 @@ fun SettingsScreen(onAppearanceClick: () -> Unit, contentPadding: PaddingValues)
             Text("Restart tour")
         }
     }
+}
+
+@Composable
+private fun TourOptionSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    ListItem(
+        headlineContent = { Text(label) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onCheckedChange) },
+    )
 }
 
 /** Nested screen of the Settings tab, used by the free-roam step. */

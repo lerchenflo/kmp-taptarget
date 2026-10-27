@@ -123,13 +123,13 @@ All parts can be switched off one by one with `WrongTapFeedback`.
 
 ## 9. Demo app
 
-- [ ] Home list: hoist `LazyListState`, build the tour in `remember(listState)`, add a step for a
+- [x] Home list: hoist `LazyListState`, build the tour in `remember(listState)`, add a step for a
   far item (`beforeShow` scroll).
-- [ ] Settings tab gets a "Tour options" section with switches that change `tourSettings` live:
+- [x] Settings tab gets a "Tour options" section with switches that change `tourSettings` live:
   pass tap through, wrong-tap feedback on/off, circle spotlight, show progress, back = previous
   step / block.
-- [ ] The "Appearance" step uses `passTapToTarget = true` (the real tap opens the screen).
-- [ ] Log the callbacks (`println`) to show they exist.
+- [x] The "Appearance" step uses `passTapToTarget = true` (the real tap opens the screen).
+- [x] Log the callbacks (`println`) to show they exist.
 
 ## 10. Tests (compile only unless the user asks to run them)
 

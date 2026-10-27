@@ -2,6 +2,8 @@ package io.github.lerchenflo.taptarget.example
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -21,6 +23,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,8 +35,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
+import io.github.lerchenflo.taptarget.BubbleStyle
+import io.github.lerchenflo.taptarget.SpotlightShape
 import io.github.lerchenflo.taptarget.TapTargetHost
+import io.github.lerchenflo.taptarget.TourBackBehavior
+import io.github.lerchenflo.taptarget.TourSettings
 import io.github.lerchenflo.taptarget.TourSkipButton
+import io.github.lerchenflo.taptarget.WrongTapFeedback
 import io.github.lerchenflo.taptarget.rememberTapTargetController
 import io.github.lerchenflo.taptarget.tapTarget
 
@@ -51,11 +59,21 @@ fun TapTargetExampleApp() {
 
     MaterialTheme(colorScheme = if (darkTheme) darkColorScheme() else lightColorScheme()) {
         val navigator = remember { ExampleNavigator() }
+        val homeListState = rememberLazyListState()
+        val tour = remember(homeListState) { exampleTour(homeListState) }
+        val tourOptions = remember { DemoTourOptions() }
 
         val tourController = rememberTapTargetController(
-            tour = exampleTour,
+            tour = tour,
             onNavigateToRoute = { route -> (route as? ExampleRoute)?.let(navigator::navigate) },
             currentRoute = { navigator.currentRoute },
+            // Applied on every composition, so the switches in Settings change the running tour
+            tourSettings = tourOptions.toTourSettings(),
+            onStepShown = { index, _ -> println("Tour: step ${index + 1} shown") },
+            onWrongTap = { index, position -> println("Tour: wrong tap on step ${index + 1} at $position") },
+            onSkipped = { index -> println("Tour: skipped on step ${index + 1}") },
+            onTargetMissing = { index, id -> println("Tour: target $id of step ${index + 1} not found") },
+            onFinished = { println("Tour: finished") },
         )
 
         // Starts the tour once. A tour that was running before the activity was recreated is
@@ -76,6 +94,8 @@ fun TapTargetExampleApp() {
         ) {
             ExampleScaffold(
                 navigator = navigator,
+                homeListState = homeListState,
+                tourOptions = tourOptions,
                 darkTheme = darkTheme,
                 onDarkThemeChange = { darkThemeOverride = it },
             )
@@ -87,6 +107,8 @@ fun TapTargetExampleApp() {
 @Composable
 private fun ExampleScaffold(
     navigator: ExampleNavigator,
+    homeListState: LazyListState,
+    tourOptions: DemoTourOptions,
     darkTheme: Boolean,
     onDarkThemeChange: (Boolean) -> Unit,
 ) {
@@ -143,12 +165,14 @@ private fun ExampleScaffold(
     ) { contentPadding ->
         when (route) {
             ExampleRoute.Home -> HomeScreen(
+                listState = homeListState,
                 itemIds = itemIds,
                 onItemClick = { itemId -> navigator.navigate(ExampleRoute.ItemDetail(itemId)) },
                 contentPadding = contentPadding,
             )
             is ExampleRoute.ItemDetail -> ItemDetailScreen(itemId = route.itemId, contentPadding = contentPadding)
             ExampleRoute.Settings -> SettingsScreen(
+                tourOptions = tourOptions,
                 onAppearanceClick = { navigator.navigate(ExampleRoute.Appearance) },
                 contentPadding = contentPadding,
             )
@@ -159,6 +183,24 @@ private fun ExampleScaffold(
             )
         }
     }
+}
+
+/** Switches on the Settings screen that change the running tour. */
+@Stable
+class DemoTourOptions {
+    var passTapToTarget by mutableStateOf(false)
+    var wrongTapFeedback by mutableStateOf(true)
+    var circleSpotlight by mutableStateOf(false)
+    var showProgress by mutableStateOf(true)
+    var backBlocks by mutableStateOf(false)
+
+    fun toTourSettings(): TourSettings = TourSettings(
+        passTapToTarget = passTapToTarget,
+        wrongTapFeedback = if (wrongTapFeedback) WrongTapFeedback() else WrongTapFeedback.None,
+        spotlightShape = if (circleSpotlight) SpotlightShape.Circle else SpotlightShape.RoundedRect,
+        bubble = BubbleStyle(showProgress = showProgress),
+        backBehavior = if (backBlocks) TourBackBehavior.Block else TourBackBehavior.PreviousStep,
+    )
 }
 
 private val ExampleRoute.title: String
