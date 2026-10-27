@@ -120,8 +120,12 @@ dependencyResolutionManagement {
 kmpTaptarget = "<version>"
 
 [libraries]
-kmp-taptarget = { module = "com.github.lerchenflo:kmp-taptarget", version.ref = "kmpTaptarget" }
+kmp-taptarget = { module = "com.github.lerchenflo.kmp-taptarget:kmp-taptarget", version.ref = "kmpTaptarget" }
 ```
+
+Use exactly this coordinate. JitPack's short form `com.github.lerchenflo:kmp-taptarget` pulls the
+Android, iOS and JVM artifacts all at once and breaks Kotlin Multiplatform dependency resolution
+("No matching variant ... kmp-taptarget-android").
 
 **3. Add the dependency** to the module that holds your UI (for example `composeApp` or `shared`):
 
@@ -598,7 +602,8 @@ If you build the root layout yourself instead of using `TapTargetHost`, provide 
 | The tour starts again after a rotation               | `start()` is called without a guard in a `LaunchedEffect`. See above.                               |
 | iOS crash with an `IrLinkage` error                  | material3 does not match the Compose Multiplatform version of your app. Use the material3 version listed next to your Compose Multiplatform version in its release notes. |
 | UI tests cannot find app nodes during a tour         | While a blocking step shows, `TapTargetHost` hides the app from the semantics tree (also test tags). Use `TourSettings(hideAppFromScreenReader = false)` in tests. |
-| `Could not find com.github.lerchenflo:kmp-taptarget` | The JitPack repository is missing in `settings.gradle.kts`, or the version tag does not exist. Open `https://jitpack.io/#lerchenflo/kmp-taptarget` to see the builds. |
+| `No matching variant of ...:kmp-taptarget-android` | The short coordinate `com.github.lerchenflo:kmp-taptarget` was used. Use `com.github.lerchenflo.kmp-taptarget:kmp-taptarget`. |
+| `Could not find com.github.lerchenflo.kmp-taptarget:kmp-taptarget` | The JitPack repository is missing in `settings.gradle.kts`, or the version tag does not exist. Open `https://jitpack.io/#lerchenflo/kmp-taptarget` to see the builds. |
 
 ## Demo app
 
@@ -651,7 +656,7 @@ to the app):
 ```kotlin
 includeBuild("../kmp-taptarget") {
     dependencySubstitution {
-        substitute(module("com.github.lerchenflo:kmp-taptarget")).using(project(":library"))
+        substitute(module("com.github.lerchenflo.kmp-taptarget:kmp-taptarget")).using(project(":library"))
     }
 }
 ```
@@ -677,7 +682,7 @@ How the JitPack build works: `jitpack.yml` tells JitPack to run
 not built. Kotlin cross-compiles the iOS libraries on Linux, so iOS works without a Mac. A tag that
 was built cannot be rebuilt with different code: fix problems with a new tag. Any commit can be
 tried without a tag by using its short hash as version, for example
-`com.github.lerchenflo:kmp-taptarget:a1b2c3d`.
+`com.github.lerchenflo.kmp-taptarget:kmp-taptarget:a1b2c3d`.
 
 ## Guide for AI coding assistants
 
@@ -687,7 +692,7 @@ This section is a compact, rule-based summary for tools that add the library to 
 
 1. Add `maven("https://jitpack.io")` to `dependencyResolutionManagement.repositories` in
    `settings.gradle.kts`.
-2. Add `com.github.lerchenflo:kmp-taptarget:<version>` to the version catalog and to
+2. Add `com.github.lerchenflo.kmp-taptarget:kmp-taptarget:<version>` to the version catalog and to
    `commonMain.dependencies` of the UI module. Never hardcode the version in a build file.
 3. Create one `object` with `const val` target ids.
 4. Define the tour with `tapTargetTour { ... }` in its own file. Give every step that lives on a
