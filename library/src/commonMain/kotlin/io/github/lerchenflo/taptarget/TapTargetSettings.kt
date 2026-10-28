@@ -19,11 +19,14 @@ import kotlin.time.Duration.Companion.seconds
  *
  * @param tapHighlighted     Hint on steps that need a tap on the highlighted target.
  * @param tapAnywhere        Hint on steps that continue with a tap anywhere.
- * @param continueButton     Label of the free-roam Continue button (a step can override it).
+ * @param continueButton     Label of the free-roam Continue button (a step can override it), and
+ *                           name of the screen reader action that goes to the next step.
  * @param skipTour           Screen reader action that skips the tour.
  * @param previousStep       Screen reader action that goes back one step.
  * @param highlightedTarget  Screen reader description of the highlighted area.
- * @param stepProgress       Progress text, shown when [BubbleStyle.showProgress] is on.
+ * @param stepProgress       Progress text, shown when [BubbleStyle.showProgress] is on. Gets the
+ *                           one-based number of the current step and the step count, e.g.
+ *                           `{ current, total -> "Step $current of $total" }`.
  * @param gotIt              Button of [TourBuilder.highlightStep] steps (a step can override it).
  */
 @Immutable
@@ -57,7 +60,10 @@ enum class SpotlightShape {
     Oval,
 }
 
-/** What the system back button / gesture does while a blocking step shows. */
+/**
+ * What the system back button / gesture does while a step shows. Set it for blocking steps with
+ * [TourSettings.backBehavior] and for free-roam steps with [TourSettings.freeRoamBackBehavior].
+ */
 enum class TourBackBehavior {
     /** Go back one step. Does nothing on the first step. */
     PreviousStep,
@@ -99,8 +105,9 @@ enum class FreeRoamLeaveBehavior {
  * @param flashHint       Flashes the tap hint in the bubble in [color].
  * @param haptic          Short "reject" vibration, where the platform supports it.
  * @param pulseTarget     Makes the ring around the target pulse once.
- * @param showGuideAfter  After this many wrong taps in a row, a hand moves from the last wrong tap
- *                        to the target. 0 never shows it.
+ * @param showGuideAfter  After this many wrong taps on the same step (and again after every further
+ *                        this many), a hand moves from the last wrong tap to the target.
+ *                        0 never shows it.
  * @param color           Color of the indicator and the flashing hint.
  *                        Unspecified: `MaterialTheme.colorScheme.error`.
  */
@@ -130,7 +137,8 @@ data class WrongTapFeedback(
 /**
  * Look of the info bubble (spotlight steps), the centered card (info steps) and the free-roam bar.
  *
- * @param maxWidth          Maximum width of the bubble next to a spotlight.
+ * @param maxWidth          Maximum width of the bubble next to a spotlight. The bubble sits below the
+ *                          spotlight, or above it when there is no room below.
  * @param centeredMaxWidth  Maximum width of the centered card of info steps.
  * @param shape             Shape of bubble, card and bar.
  * @param containerColor    Background. Unspecified: `MaterialTheme.colorScheme.surface`.
@@ -161,12 +169,13 @@ data class BubbleStyle(
  * Behaviour and look of a tour. Pass it to [rememberTapTargetController]; it can be changed while
  * the tour runs (see [TapTargetController.tourSettings]).
  *
- * @param iconPadding              Space between the target bounds and the spotlight edge.
+ * @param iconPadding              Space between the target bounds and the spotlight edge, on every side.
  * @param cornerRadius             Corner radius of a [SpotlightShape.RoundedRect] spotlight.
  * @param spotlightShape           Default shape of the spotlight. A step can override it.
- * @param scrimColor               Default scrim color. A step can override it.
- * @param highlightColor           Spotlight outline, tap ring and guide hand.
- *                                 Unspecified: `MaterialTheme.colorScheme.primary`.
+ * @param scrimColor               Default scrim color (the dimmed layer over the app). A step can
+ *                                 override it.
+ * @param highlightColor           Spotlight outline, tap ring, guide hand and the info icon of
+ *                                 highlight steps. Unspecified: `MaterialTheme.colorScheme.primary`.
  * @param spotlightBreathing       The spotlight slowly grows and shrinks, so the eye finds it.
  * @param showTapRing              Pulsing ring around the target on steps that need an exact tap.
  * @param dashedHighlightOutline   [TourBuilder.highlightStep] steps get a dashed outline (else solid).
@@ -177,20 +186,28 @@ data class BubbleStyle(
  *                                 A gray (e.g. `MaterialTheme.colorScheme.outline`) greys the element out.
  * @param outlineWidth             Width of the spotlight outline.
  * @param highlightOutlineWidth    Width of the outline of [TourBuilder.highlightStep] steps.
- * @param skipMissingTargets       Skip a step whose target does not appear within [targetTimeout],
- *                                 instead of waiting forever.
- * @param targetTimeout            How long a step waits for its target.
- * @param autoScroll               Scroll a target inside a scrollable container to the middle of
- *                                 the screen.
+ * @param skipMissingTargets       Skip a step whose target does not appear within [targetTimeout]
+ *                                 (in the direction the user was moving). False: the step keeps
+ *                                 waiting and shows as soon as the target appears; until then no
+ *                                 overlay is drawn.
+ * @param targetTimeout            How long a step waits for its target to be laid out (after the
+ *                                 navigation to its route). The app's `onTargetMissing` is called
+ *                                 when it runs out.
+ * @param autoScroll               When a step starts, scroll its target to the middle of the screen
+ *                                 if it sits in a vertically scrollable container and is outside the
+ *                                 middle 40% of the screen.
  * @param passTapToTarget          A tap on the target also reaches the real composable (the button
- *                                 runs its own onClick). A step can override it.
+ *                                 runs its own onClick, e.g. to navigate) and the tour goes to the
+ *                                 next step. False: the overlay catches the tap. A step can override
+ *                                 it. Highlight steps never pass taps on.
  * @param wrongTapFeedback         Feedback for taps next to the target.
  * @param backBehavior             What system back does while a blocking step shows.
  * @param freeRoamBackBehavior     What system back does during a free-roam step. Default
  *                                 [TourBackBehavior.PassThrough]: the app handles it.
  * @param freeRoamLeaveBehavior    What happens when the user leaves the screen of a free-roam step.
  * @param keyboardNavigation       Enter / Space / Right arrow continue, Left arrow goes back,
- *                                 Escape skips the tour.
+ *                                 Escape skips the tour. Only on blocking steps; the overlay takes
+ *                                 the keyboard focus for it.
  * @param hideAppFromScreenReader  While a blocking step shows, screen readers only see the tour.
  * @param bubble                   Look of bubbles, cards and the free-roam bar.
  */

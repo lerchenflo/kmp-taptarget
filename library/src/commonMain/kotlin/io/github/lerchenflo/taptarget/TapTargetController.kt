@@ -21,32 +21,54 @@ import kotlin.time.Duration.Companion.milliseconds
 // Controller
 // ─────────────────────────────────────────────────────────────────
 
-/** Stores the screen-space bounding box of a registered target composable. */
+/**
+ * Where a registered target composable is on screen.
+ *
+ * @property bounds  Bounding box of the target in root coordinates (px), from its last layout pass.
+ *                   The spotlight is drawn around it.
+ */
 data class TargetInfo(val bounds: Rect)
 
 /**
- * Single source of truth for the active onboarding tour.
+ * Single source of truth for the active onboarding tour: which step shows, whether the tour runs
+ * and where the targets are on screen.
  *
  * Create exactly one instance with [rememberTapTargetController] at the root of your
  * composition, then pass it to [TapTargetHost]. Do **not** pass it around manually —
- * call sites only need [tapTarget].
+ * call sites only need [tapTarget], and a screen that controls the tour (e.g. a "restart tour"
+ * button) reads it from [LocalTapTargetController].
+ *
+ * The tour does not start by itself: call [start] (e.g. when "onboarding_seen" is not set yet).
  *
  * @param tour                The tour definition produced by [tapTargetTour].
- * @param onNavigateToRoute   Called when the current step lives on a different screen.
- *                            Implementation depends on the navigation library in use.
- * @param currentRoute        Returns the currently active route, used to decide
- *                            whether navigation is needed before a step.
- * @param isMatchingRoute     Decides if the active route already shows the step's route.
- *                            Defaults to comparing the classes (so data classes with
- *                            different arguments count as the same screen).
- * @param onFinished          Invoked when the tour completes (all steps shown) or
- *                            is skipped. Persist "onboarding_seen" here.
- * @param tourSettings        Behaviour and look, see [TourSettings]. Can be changed later.
- * @param onStepShown         A step became visible (its target was found). For analytics.
- * @param onSkipped           The tour was skipped on the step with this index (before [onFinished]).
- * @param onWrongTap          A tap next to the target on a step that needs an exact tap.
- *                            The position is in root coordinates.
- * @param onTargetMissing     A step's target did not appear within [TourSettings.targetTimeout].
+ * @param onNavigateToRoute   Called with a step's [TourStep.route] when that step lives on a
+ *                            different screen than [currentRoute]. Navigate there with your
+ *                            navigation library (cast the route to your route type). It suspends:
+ *                            the step waits until it returns, then waits for its target.
+ *                            Default: does nothing (tours on one screen).
+ * @param currentRoute        Returns the route that shows right now (e.g. `backStack.lastOrNull()`).
+ *                            Read before each step and every 200 ms during a free-roam step.
+ *                            Null (the default) means "unknown": a step with a route then always
+ *                            calls [onNavigateToRoute].
+ * @param isMatchingRoute     Decides if the active route already shows the step's route, so no
+ *                            navigation is needed. Defaults to comparing the classes (so data
+ *                            classes with different arguments count as the same screen). Pass
+ *                            `{ target, active -> target == active }` to compare the arguments too.
+ * @param onFinished          Called when the tour ends: after the last step, or when it is skipped
+ *                            ([skip], the skip button, back or Escape). Persist "onboarding_seen" here.
+ * @param tourSettings        Behaviour and look, see [TourSettings]. Can be changed later through
+ *                            [TapTargetController.tourSettings].
+ * @param onStepShown         A step became visible (its target was found), with its zero-based index.
+ *                            For analytics.
+ * @param onSkipped           The tour was skipped on the step with this zero-based index. Called
+ *                            before [onFinished].
+ * @param onWrongTap          A tap next to the target on a step that needs an exact tap
+ *                            ([TourStep.requireExactTap]), with the step index and the tap position
+ *                            in root coordinates (px).
+ * @param onTargetMissing     The target with this id did not appear within [TourSettings.targetTimeout]
+ *                            on the step with this index (e.g. a typo in the id, or the element is
+ *                            not on the screen). With [TourSettings.skipMissingTargets] the step is
+ *                            then skipped.
  * @param onError             An exception thrown by one of the app's callbacks (or `beforeShow`).
  *                            The library catches it, so a broken callback never crashes the app;
  *                            the tour goes on (a step whose navigation failed is skipped).
@@ -85,37 +107,59 @@ class TapTargetController(
     // Targets registered by Modifier.tapTarget — keyed by step id.
     private val targets = mutableStateMapOf<String, TargetInfo>()
 
-    /** Zero-based index of the step currently being spotlighted. */
+    /**
+     * Zero-based index of the step that shows (or shows next). Equals [stepCount] after the tour
+     * finished or was skipped.
+     */
     var currentIndex by mutableStateOf(0)
         private set
 
-    /** Whether the tour is currently active. Defaults to false. */
+    /**
+     * True from [start] / [goTo] until the tour finishes or is skipped. Defaults to false.
+     * Prefer [isActive], which also checks that a step is left to show.
+     */
     var active by mutableStateOf(false)
         private set
 
-    /** The [TourStep] being spotlighted right now, or null when the tour is over. */
+    /** The [TourStep] that shows right now, or null when the tour does not run. */
     val currentStep: TourStep? get() = if (isActive) tour.steps.getOrNull(currentIndex) else null
 
-    /** The bounds of the currently spotlighted composable, or null if not yet laid out. */
+    /**
+     * Where the current step's target is, or null when the step has no target or the target is
+     * not laid out yet (e.g. while the navigation to its screen runs).
+     */
     val currentTarget: TargetInfo? get() = currentStep?.id?.let { targets[it] }
 
-    /** True while tour is active and there are still steps left to show. */
+    /** True while the tour runs and there are still steps left to show. */
     val isActive: Boolean get() = active && currentIndex < tour.steps.size
 
     /** Number of steps in the tour. */
     val stepCount: Int get() = tour.steps.size
 
-    /** True while a step shows that blocks the app (every step except free-roam steps). */
+    /**
+     * True while a step shows that blocks the app (every step except free-roam steps).
+     * False when the tour does not run.
+     */
     val isBlocking: Boolean get() = currentStep?.isBlocking == true
 
     // ── Target registration ──────────────────────────────────────
 
-    /** Called automatically by [tapTarget] on every layout pass. */
+    /**
+     * Stores where the target with [id] is, so a step with that id can spotlight it.
+     * Called automatically by [tapTarget] on every layout pass; call it yourself only for a
+     * target that cannot use the modifier.
+     *
+     * @param id      The id a step refers to ([TourStep.id]).
+     * @param bounds  Bounds of the target in root coordinates (px).
+     */
     fun register(id: String, bounds: Rect) {
         targets[id] = TargetInfo(bounds)
     }
 
-    /** Called automatically by [tapTarget] when the composable leaves the composition. */
+    /**
+     * Forgets the target with [id], so no step spotlights a stale position.
+     * Called automatically by [tapTarget] when the composable leaves the composition.
+     */
     fun unregister(id: String) {
         targets.remove(id)
     }
@@ -126,7 +170,10 @@ class TapTargetController(
         active = isActive
     }
 
-    /** Resets the tour to the first step and activates it. */
+    /**
+     * Starts the tour at the first step. A running or finished tour starts again from the
+     * beginning (without calling [onFinished]).
+     */
     fun start() {
         movingForward = true
         currentIndex = 0
@@ -134,8 +181,10 @@ class TapTargetController(
     }
 
     /**
-     * Advances to the next step, or finishes the tour if all steps have been shown.
-     * Bound to the user's tap gesture on the overlay.
+     * Advances to the next step. After the last step the tour finishes: [isActive] turns false
+     * and [onFinished] is called.
+     * The overlay calls it on a tap that continues the step; call it yourself e.g. from a custom
+     * button inside a step's content.
      */
     fun next() {
         movingForward = true
@@ -147,17 +196,22 @@ class TapTargetController(
     }
 
     /**
-     * Immediately ends the tour without showing the remaining steps.
-     * Calls [onFinished] so persistence can happen in the same callback.
+     * Goes back one step. Does nothing on the first step or when the tour does not run.
+     * System back calls it by default ([TourSettings.backBehavior]).
      */
-    /** Goes back one step. Does nothing on the first step or when the tour does not run. */
     fun previous() {
         if (!isActive || currentIndex == 0) return
         movingForward = false
         currentIndex--
     }
 
-    /** Jumps to the step at [index] (clamped to the tour) and starts the tour if it does not run. */
+    /**
+     * Jumps to the step at [index] and starts the tour if it does not run.
+     * Does nothing for a tour without steps.
+     *
+     * @param index  Zero-based step index. Values outside the tour are clamped to the first or
+     *               last step.
+     */
     fun goTo(index: Int) {
         if (tour.steps.isEmpty()) return
         val target = index.coerceIn(0, tour.steps.lastIndex)
@@ -166,6 +220,11 @@ class TapTargetController(
         active = true
     }
 
+    /**
+     * Immediately ends the tour without showing the remaining steps.
+     * Calls [onSkipped] (when the tour runs) and then [onFinished], so persistence can happen in
+     * the same callback. The skip button, Escape and [TourBackBehavior.SkipTour] call it.
+     */
     fun skip() {
         if (isActive) safely(Unit) { onSkipped(currentIndex) }
         currentIndex = tour.steps.size
@@ -262,6 +321,7 @@ class TapTargetController(
 /**
  * Creates a [TapTargetController] and remembers it, including the tour progress (current step and
  * whether the tour runs) across activity recreation and process death on Android.
+ * Call it once at the root of the app and pass the result to [TapTargetHost].
  *
  * The callbacks may capture changing values: the controller always calls the latest ones.
  * [tourSettings] is applied on every composition, so it can change while the tour runs.
@@ -276,7 +336,39 @@ class TapTargetController(
  * )
  * ```
  *
- * See [TapTargetController] for the parameters.
+ * @param tour                The tour definition produced by [tapTargetTour].
+ * @param onNavigateToRoute   Called with a step's [TourStep.route] when that step lives on a
+ *                            different screen than [currentRoute]. Navigate there with your
+ *                            navigation library (cast the route to your route type). It suspends:
+ *                            the step waits until it returns, then waits for its target.
+ *                            Default: does nothing (tours on one screen).
+ * @param currentRoute        Returns the route that shows right now (e.g. `backStack.lastOrNull()`).
+ *                            Read before each step and every 200 ms during a free-roam step.
+ *                            Null (the default) means "unknown": a step with a route then always
+ *                            calls [onNavigateToRoute].
+ * @param isMatchingRoute     Decides if the active route already shows the step's route, so no
+ *                            navigation is needed. Defaults to comparing the classes (so data
+ *                            classes with different arguments count as the same screen). Pass
+ *                            `{ target, active -> target == active }` to compare the arguments too.
+ * @param onFinished          Called when the tour ends: after the last step, or when it is skipped
+ *                            (the skip button, back or Escape). Persist "onboarding_seen" here.
+ * @param tourSettings        Behaviour and look, see [TourSettings]. Applied on every composition,
+ *                            so a new value takes effect while the tour runs.
+ * @param onStepShown         A step became visible (its target was found), with its zero-based index.
+ *                            For analytics.
+ * @param onSkipped           The tour was skipped on the step with this zero-based index. Called
+ *                            before [onFinished].
+ * @param onWrongTap          A tap next to the target on a step that needs an exact tap
+ *                            ([TourStep.requireExactTap]), with the step index and the tap position
+ *                            in root coordinates (px).
+ * @param onTargetMissing     The target with this id did not appear within [TourSettings.targetTimeout]
+ *                            on the step with this index (e.g. a typo in the id, or the element is
+ *                            not on the screen). With [TourSettings.skipMissingTargets] the step is
+ *                            then skipped.
+ * @param onError             An exception thrown by one of the app's callbacks (or `beforeShow`).
+ *                            The library catches it, so a broken callback never crashes the app;
+ *                            the tour goes on (a step whose navigation failed is skipped).
+ * @return The remembered controller. The tour does not run until [TapTargetController.start] is called.
  */
 @Composable
 fun rememberTapTargetController(
@@ -340,7 +432,12 @@ fun rememberTapTargetController(
 
 /**
  * Provides the active [TapTargetController] to every composable in the subtree.
- * [TapTargetHost] sets it, read it to control the tour from a screen (e.g. `start()`).
+ * [TapTargetHost] sets it, read it to control the tour from a screen:
+ *
+ * ```kotlin
+ * val tourController = LocalTapTargetController.current
+ * TextButton(onClick = { tourController?.start() }) { Text("Show tour again") }
+ * ```
  *
  * Defaults to `null` so that [tapTarget] is a no-op in previews, tests,
  * or screens not part of any tour.

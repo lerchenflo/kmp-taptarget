@@ -44,8 +44,23 @@ import kotlin.time.Duration.Companion.milliseconds
  * ) { Icon(Icons.Default.Add, null) }
  * ```
  *
+ * While the composable is on screen the modifier:
+ * - reports its bounds on every layout pass, so the spotlight follows it (and forgets them when
+ *   the composable leaves the composition)
+ * - scrolls it to the middle of the screen when its step starts, if it sits in a vertically
+ *   scrollable container ([TourSettings.autoScroll])
+ * - on pass-through steps ([TourStep.passTapToTarget]) notices a tap on the composable and goes to
+ *   the next step; the composable itself still gets the tap
+ *
+ * The spotlight covers the size the modifier chain has at this point: placed before `padding`, the
+ * padding is inside the spotlight; placed after it, only the inner content is.
+ *
  * If there is no [TapTargetHost] above this composable the modifier does nothing,
  * so existing screens, previews and tests stay safe even outside a tour context.
+ *
+ * @param id  Id of the step that spotlights this composable, the same string as in
+ *            [TourBuilder.tapStep] / [TourBuilder.highlightStep]. Use each id on only one
+ *            composable at a time.
  */
 fun Modifier.tapTarget(id: String): Modifier = this then TapTargetElement(id)
 

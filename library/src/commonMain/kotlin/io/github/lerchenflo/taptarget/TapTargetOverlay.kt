@@ -110,13 +110,27 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Default headline text for a step's bubble. */
+/**
+ * Headline of a step's bubble in `MaterialTheme.typography.titleMedium`.
+ * Use it inside a step's content lambda.
+ *
+ * @param text       The headline.
+ * @param modifier   Applied to the [Text].
+ * @param textAlign  Alignment of the text. Null: the default alignment (start).
+ */
 @Composable
 fun TourTitle(text: String, modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
     Text(text = text, modifier = modifier, style = MaterialTheme.typography.titleMedium, textAlign = textAlign)
 }
 
-/** Default body text for a step's bubble. */
+/**
+ * Body text of a step's bubble in `MaterialTheme.typography.bodyMedium`.
+ * Use it inside a step's content lambda, usually below a [TourTitle].
+ *
+ * @param text       The body text.
+ * @param modifier   Applied to the [Text].
+ * @param textAlign  Alignment of the text. Null: the default alignment (start).
+ */
 @Composable
 fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: TextAlign? = null) {
     Text(text = text, modifier = modifier, style = MaterialTheme.typography.bodyMedium, textAlign = textAlign)
@@ -149,9 +163,15 @@ fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: Text
  * - Handles system back ([TourSettings.backBehavior]) and the keyboard
  *   ([TourSettings.keyboardNavigation]) while a blocking step shows.
  *
+ * @param controller      The controller from [rememberTapTargetController].
  * @param strings         Built-in texts, see [TourStrings].
- * @param skipButton      Optional skip button slot, see [TourSkipButton]. Null hides the button.
- * @param continueButton  Optional Continue button of free-roam steps. Null: a material3 [Button].
+ * @param skipButton      Skip button, shown on every step in a corner of the screen half away from
+ *                        the spotlight. It gets `onSkip`, which ends the tour. Use [TourSkipButton]
+ *                        for the default look. Null (the default) shows no skip button.
+ * @param continueButton  Replaces the button of free-roam steps ("Continue") and highlight steps
+ *                        ("Got it"). It gets the button label and `onContinue`, which goes to the
+ *                        next step. Null (the default): a material3 [Button] on free-roam steps, a
+ *                        [FilledTonalButton] on highlight steps.
  */
 @Composable
 fun TapTargetOverlay(
@@ -229,6 +249,10 @@ fun TapTargetOverlay(
  *     skipButton = { onSkip -> TourSkipButton(stringResource(Res.string.skip), onSkip) }
  * ) { ... }
  * ```
+ *
+ * @param text      Button label, e.g. a localized "Skip".
+ * @param onSkip    The `onSkip` the slot gets; it ends the tour.
+ * @param modifier  Applied to the [FilledTonalButton].
  */
 @Composable
 fun TourSkipButton(text: String, onSkip: () -> Unit, modifier: Modifier = Modifier) {
