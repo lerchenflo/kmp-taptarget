@@ -113,12 +113,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.3`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.4`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-taptarget/tags):
 
 ```toml
 [versions]
-kmpTaptarget = "1.0.3"
+kmpTaptarget = "1.0.4"
 
 [libraries]
 kmp-taptarget = { module = "com.github.lerchenflo.kmp-taptarget:kmp-taptarget", version.ref = "kmpTaptarget" }
@@ -700,8 +700,8 @@ Sync Gradle, and the app builds against your local changes. Remove the block bef
 2. Commit and push to `main`.
 3. Create a git tag with the new version and push it, for example:
    ```bash
-   git tag 1.0.3
-   git push origin 1.0.3
+   git tag 1.0.5
+   git push origin 1.0.5
    ```
 4. Open `https://jitpack.io/#lerchenflo/kmp-taptarget`, click **Get it** next to the tag, and wait
    for the build. JitPack also builds a tag the first time an app asks for it, but then that first
@@ -800,10 +800,14 @@ enum class FreeRoamBarPosition { Top, Center, Bottom }
 
 ## Changelog
 
+### 1.0.4
+- Publishes the sources jars again, so the IDE shows the KDoc on hover instead of decompiled
+  signatures (`= COMPILED_CODE`).
+- No behaviour changes.
+
 ### 1.0.3
-- KDoc for every public function, class and parameter, so the IDE explains each of them on hover.
-  This includes the `StringResource` variants of the step functions and
-  `rememberTapTargetController`.
+- KDoc for every public function, class and parameter. The IDE only shows it from 1.0.4 on,
+  because 1.0.3 publishes no sources jars.
 - No behaviour changes.
 
 ### 1.0.2
