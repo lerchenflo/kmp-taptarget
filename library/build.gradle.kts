@@ -1,6 +1,7 @@
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.SourcesJar
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -92,11 +93,25 @@ publishing {
             }
         }
     }
+
+    // Sources jars as plain Maven "-sources" files, outside the module metadata (where JitPack's rewrite
+    // would point them to the classes jar). The IDE fetches them by classifier and shows the KDoc on hover.
+    // Looked up lazily: the Android plugin registers its sources jar task after the publication
+    publications.withType<MavenPublication>().configureEach {
+        val sourcesJarName = if (name == "kotlinMultiplatform") "sourcesJar" else name + "SourcesJar"
+        val sourcesJar = provider { tasks.named<AbstractArchiveTask>(sourcesJarName).get() }
+        artifact(sourcesJar.flatMap { it.archiveFile }) {
+            classifier = "sources"
+            extension = "jar"
+            builtBy(sourcesJar)
+        }
+    }
 }
 
 mavenPublishing {
 
-    // No sources jars: JitPack's rewritten metadata would point their variants to the wrong files
+    // No sources variants in the module metadata: JitPack's rewrite would point them to the wrong files.
+    // The sources jars are published as plain Maven files instead, see above
     configure(KotlinMultiplatform(javadocJar = JavadocJar.Empty(), sourcesJar = SourcesJar.None()))
 
     coordinates(group.toString(), "kmp-taptarget", version.toString())

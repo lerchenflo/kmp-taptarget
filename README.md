@@ -712,9 +712,11 @@ Sync Gradle, and the app builds against your local changes. Remove the block bef
 
 JitPack rewrites the Gradle module metadata and drops the classifier from every file name
 (`x-1.0.0-metadata.jar` becomes `x-1.0.0.jar`). `library/build.gradle.kts` therefore publishes the
-iOS metadata jar and the iOS resources zip a second time without classifier, and publishes no
-sources jars. Without this, the Android Studio sync of apps fails with
-`Could not find kmp-taptarget-iosarm64-<version>.jar`. Keep this when changing the build.
+iOS metadata jar and the iOS resources zip a second time without classifier. Without this, the
+Android Studio sync of apps fails with `Could not find kmp-taptarget-iosarm64-<version>.jar`.
+For the same reason the sources jars are not variants in the module metadata (the rewrite would
+point them to the classes jar). They are published as plain Maven `-sources.jar` files, which the
+IDE finds by classifier, so it shows the KDoc on hover. Keep both when changing the build.
 
 How the JitPack build works: `jitpack.yml` tells JitPack to run
 `./gradlew :library:publishToMavenLocal -Pversion=<tag>` with JDK 25 on Linux. The example apps are
