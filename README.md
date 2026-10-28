@@ -113,12 +113,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.2`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.3`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-taptarget/tags):
 
 ```toml
 [versions]
-kmpTaptarget = "1.0.2"
+kmpTaptarget = "1.0.3"
 
 [libraries]
 kmp-taptarget = { module = "com.github.lerchenflo.kmp-taptarget:kmp-taptarget", version.ref = "kmpTaptarget" }
@@ -797,6 +797,12 @@ enum class FreeRoamBarPosition { Top, Center, Bottom }
 ```
 
 ## Changelog
+
+### 1.0.3
+- KDoc for every public function, class and parameter, so the IDE explains each of them on hover.
+  This includes the `StringResource` variants of the step functions and
+  `rememberTapTargetController`.
+- No behaviour changes.
 
 ### 1.0.2
 - New `highlightStep`: points at an element only to inform. Calm dashed outline, lightly dimmed
