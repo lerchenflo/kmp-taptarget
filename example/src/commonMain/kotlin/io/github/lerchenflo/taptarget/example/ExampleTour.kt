@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.lerchenflo.taptarget.FreeRoamBarPosition
 import io.github.lerchenflo.taptarget.TapTargetTour
+import io.github.lerchenflo.taptarget.TourControls
 import io.github.lerchenflo.taptarget.TourDescription
 import io.github.lerchenflo.taptarget.TourTitle
 import io.github.lerchenflo.taptarget.tapTargetTour
@@ -50,6 +51,14 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
     infoStep(route = ExampleRoute.Home) {
         TourTitle("Welcome")
         TourDescription("This demo shows every feature of kmp-taptarget. Follow the steps or skip the tour at any time.")
+    }
+
+    // Steps can point at the tour's own controls; tapping them here does nothing
+    highlightStep(id = TourControls.SKIP_TOUR) {
+        TourDescription("This ends the tour at any time.")
+    }
+    highlightStep(id = TourControls.SKIP_SECTION) {
+        TourDescription("This jumps to the next part of the tour.")
     }
 
     section("Home list") {

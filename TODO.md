@@ -209,3 +209,11 @@ shows everything. Breaking changes allowed; release as 1.1.0 after the user test
   `TourSkipSectionButton`, `TourStrings.skipSection`; skipped steps count as seen.
 - [x] `optionalSection(name, ...) { }`: question card with show / skip; skip = seen (user, 2026-11-19).
 - [x] Tests (`TapTargetSectionsTest`), demo sections, README, release 1.2.0.
+
+## 18. Small skip controls, smart placement, explaining the controls (SchneaggchatV3 + user, 2026-11-19)
+
+- [x] `TourSkipIconButton` / `TourSkipSectionIconButton`; slots still take custom composables.
+- [x] Controls placed in the first corner that covers neither target nor card / bar.
+- [x] `TourControls.SKIP_TOUR` / `SKIP_SECTION` target ids; during such a step both controls show
+  and are inert. Info card with icons stays possible (user: "both").
+- [x] Tests (`TapTargetControlsTest`), demo, README, release 1.2.1.

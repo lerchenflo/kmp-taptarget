@@ -28,8 +28,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
  * @param modifier        Applied to the full-size [Box] that holds the content and the overlay.
  * @param strings         Built-in overlay texts (tap hints, button labels, screen reader texts),
  *                        see [TourStrings]. Pass localized ones here.
- * @param skipButton      Skip button, shown on every step in a corner of the screen half away from
- *                        the spotlight. It gets `onSkip`, which ends the tour
+ * @param skipButton      Skip button, shown on every step in the first screen corner that covers
+ *                        neither the target nor the step's card. Its target id is
+ *                        [TourControls.SKIP_TOUR]. Use [TourSkipIconButton] for a small icon. It gets `onSkip`, which ends the tour
  *                        ([TapTargetController.skip]). Use [TourSkipButton] for the default look.
  *                        Null (the default) shows no skip button.
  * @param continueButton  Replaces the button of free-roam steps ("Continue"), highlight steps
@@ -41,7 +42,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
  * @param skipSectionButton  Button that jumps over the rest of the current section
  *                        ([TourBuilder.section], [TapTargetController.skipSection]). Shown next to
  *                        the skip button, only while the current section has more steps after this
- *                        one. It gets `onSkipSection`. Use [TourSkipSectionButton] for the default
+ *                        one (or while a step points at a control). Target id
+ *                        [TourControls.SKIP_SECTION]; [TourSkipSectionIconButton] is a small icon. It gets `onSkipSection`. Use [TourSkipSectionButton] for the default
  *                        look. Null (the default) shows no such button.
  * @param content         The app, usually the navigation host. Placed in a full-size [Box] below
  *                        the overlay.

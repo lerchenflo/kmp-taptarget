@@ -41,8 +41,8 @@ import io.github.lerchenflo.taptarget.SpotlightShape
 import io.github.lerchenflo.taptarget.TapTargetHost
 import io.github.lerchenflo.taptarget.TourBackBehavior
 import io.github.lerchenflo.taptarget.TourSettings
-import io.github.lerchenflo.taptarget.TourSkipButton
-import io.github.lerchenflo.taptarget.TourSkipSectionButton
+import io.github.lerchenflo.taptarget.TourSkipIconButton
+import io.github.lerchenflo.taptarget.TourSkipSectionIconButton
 import io.github.lerchenflo.taptarget.WrongTapFeedback
 import io.github.lerchenflo.taptarget.rememberTapTargetController
 import io.github.lerchenflo.taptarget.tapTarget
@@ -92,8 +92,11 @@ fun TapTargetExampleApp() {
         TapTargetHost(
             controller = tourController,
             modifier = Modifier.background(MaterialTheme.colorScheme.background),
-            skipButton = { onSkip -> TourSkipButton(text = "Skip tour", onSkip = onSkip) },
-            skipSectionButton = { onSkipSection -> TourSkipSectionButton(text = "Next section", onSkipSection = onSkipSection) },
+            // Small icon controls; they move to a corner that covers neither target nor card
+            skipButton = { onSkip -> TourSkipIconButton(contentDescription = "Skip tour", onSkip = onSkip) },
+            skipSectionButton = { onSkipSection ->
+                TourSkipSectionIconButton(contentDescription = "Next section", onSkipSection = onSkipSection)
+            },
         ) {
             ExampleScaffold(
                 navigator = navigator,

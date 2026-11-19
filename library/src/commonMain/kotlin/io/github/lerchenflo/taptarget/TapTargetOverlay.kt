@@ -30,10 +30,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -46,6 +49,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +63,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.geometry.lerp
@@ -81,7 +90,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -166,13 +178,15 @@ fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: Text
  *
  * @param controller      The controller from [rememberTapTargetController].
  * @param strings         Built-in texts, see [TourStrings].
- * @param skipButton      Skip button, shown on every step in a corner of the screen half away from
- *                        the spotlight. It gets `onSkip`, which ends the tour. Use [TourSkipButton]
+ * @param skipButton      Skip button, shown on every step in the first screen corner that covers
+ *                        neither the target nor the step's card. Its target id is
+ *                        [TourControls.SKIP_TOUR]. Use [TourSkipIconButton] for a small icon. It gets `onSkip`, which ends the tour. Use [TourSkipButton]
  *                        for the default look. Null (the default) shows no skip button.
  * @param skipSectionButton  Button that jumps over the rest of the current section
  *                        ([TourBuilder.section], [TapTargetController.skipSection]). Shown next to
  *                        the skip button, only while the current section has more steps after this
- *                        one. It gets `onSkipSection`. Use [TourSkipSectionButton] for the default
+ *                        one (or while a step points at a control). Target id
+ *                        [TourControls.SKIP_SECTION]; [TourSkipSectionIconButton] is a small icon. It gets `onSkipSection`. Use [TourSkipSectionButton] for the default
  *                        look. Null (the default) shows no such button.
  * @param continueButton  Replaces the button of free-roam steps ("Continue"), highlight steps
  *                        ("Got it") and the show button of optional-section question cards
@@ -218,10 +232,16 @@ fun TapTargetOverlay(
         if (keyboardEnabled) runCatching { focusRequester.requestFocus() }
     }
 
+    // Where the step's card / bar and the overlay itself are, so the controls can avoid the card
+    val cardBounds = remember(step) { mutableStateOf<Rect?>(null) }
+    val overlayOrigin = remember { mutableStateOf(Offset.Zero) }
+    val controlsMemory = remember { ControlsPlacementMemory() }
+
     //Plain Box without pointer input - taps still reach the app during free-roam steps
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
+            .onGloballyPositioned { overlayOrigin.value = it.positionInRoot() }
             .then(
                 if (keyboardEnabled) {
                     Modifier
@@ -233,28 +253,189 @@ fun TapTargetOverlay(
                 }
             )
     ) {
-        TourStepLayer(controller, step, strings, continueButton)
+        CompositionLocalProvider(LocalTourCardBounds provides cardBounds) {
+            TourStepLayer(controller, step, strings, continueButton)
+        }
 
-        // The question card of an optional section has its own skip button
-        val sectionButton = skipSectionButton?.takeIf { controller.canSkipSection && !step.sectionQuestion }
-        if (skipButton != null || sectionButton != null) {
-            val target = controller.currentTarget
-            //Spotlight steps show the buttons only once the spotlight itself is drawn
-            if (step.id == null || step.freeRoamPosition != null || target != null) {
-                val screenHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
-                Row(
-                    modifier = Modifier
-                        .align(skipButtonAlignment(step, target, screenHeightPx))
-                        .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    sectionButton?.invoke { controller.skipSection() }
-                    skipButton?.invoke { controller.skip() }
+        TourControlsLayer(
+            controller = controller,
+            step = step,
+            skipButton = skipButton,
+            skipSectionButton = skipSectionButton,
+            cardBounds = cardBounds,
+            overlayOrigin = overlayOrigin,
+            memory = controlsMemory,
+        )
+    }
+}
+
+/**
+ * Target ids of the tour's own controls, so a step can point at them, e.g. right at the start:
+ *
+ * ```kotlin
+ * highlightStep(TourControls.SKIP_TOUR, title = Res.string.end_tour_here)
+ * highlightStep(TourControls.SKIP_SECTION, title = Res.string.next_part_here)
+ * ```
+ *
+ * While such a step shows, both controls show (also the skip-section control outside a section)
+ * and a tap on them does nothing, so explaining them never ends the tour.
+ */
+object TourControls {
+    /** The control of the `skipButton` slot of [TapTargetHost]. */
+    const val SKIP_TOUR: String = "io.github.lerchenflo.taptarget.skip_tour"
+
+    /** The control of the `skipSectionButton` slot of [TapTargetHost]. */
+    const val SKIP_SECTION: String = "io.github.lerchenflo.taptarget.skip_section"
+
+    internal val ids: Set<String> = setOf(SKIP_TOUR, SKIP_SECTION)
+}
+
+/** Bounds (root coordinates) of the card / bar of the step that shows, written by [TourCard]. */
+private val LocalTourCardBounds = staticCompositionLocalOf<MutableState<Rect?>?> { null }
+
+/** The corner the controls used last, kept while a step explains them (so they do not jump). */
+private class ControlsPlacementMemory {
+    var top: Boolean = true
+    var end: Boolean = true
+    var known: Boolean = false
+}
+
+/**
+ * The skip / skip-section controls. They sit in the first screen corner that overlaps neither
+ * the highlighted target nor the step's card: the corner opposite to the target first (same
+ * half, then the other side), then the other half. When every corner overlaps, the first one.
+ */
+@Composable
+private fun TourControlsLayer(
+    controller: TapTargetController,
+    step: TourStep,
+    skipButton: (@Composable (onSkip: () -> Unit) -> Unit)?,
+    skipSectionButton: (@Composable (onSkipSection: () -> Unit) -> Unit)?,
+    cardBounds: MutableState<Rect?>,
+    overlayOrigin: MutableState<Offset>,
+    memory: ControlsPlacementMemory,
+) {
+    // A step that points at a control: show both, taps on them do nothing
+    val explaining = step.id != null && step.id in TourControls.ids
+    // The question card of an optional section has its own skip button
+    val showSection = skipSectionButton != null && !step.sectionQuestion &&
+        (controller.canSkipSection || explaining)
+    if (skipButton == null && !showSection) return
+    //Spotlight steps show the controls only once the spotlight itself is drawn
+    val spotlightReady = step.id == null || step.freeRoamPosition != null || controller.currentTarget != null
+    if (!spotlightReady && !explaining) return
+
+    val insets = WindowInsets.safeDrawing
+    Layout(
+        content = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showSection && skipSectionButton != null) {
+                    Box(Modifier.tapTarget(TourControls.SKIP_SECTION)) {
+                        skipSectionButton { if (!explaining) controller.skipSection() }
+                    }
+                }
+                if (skipButton != null) {
+                    Box(Modifier.tapTarget(TourControls.SKIP_TOUR)) {
+                        skipButton { if (!explaining) controller.skip() }
+                    }
                 }
             }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) { measurables, constraints ->
+        val row = measurables.first().measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val width = constraints.maxWidth
+        val height = constraints.maxHeight
+        layout(width, height) {
+            val margin = 8.dp.roundToPx()
+            val leftX = insets.getLeft(this@Layout, layoutDirection) + margin
+            val rightX = width - insets.getRight(this@Layout, layoutDirection) - margin - row.width
+            val topY = insets.getTop(this@Layout) + margin
+            val bottomY = height - insets.getBottom(this@Layout) - margin - row.height
+            fun x(end: Boolean) = if (end == (layoutDirection == LayoutDirection.Ltr)) rightX else leftX
+            fun y(top: Boolean) = if (top) topY else bottomY
+
+            val (top, end) = if (explaining) {
+                // Keep the last corner: avoiding the explained control would move it away
+                if (memory.known) memory.top to memory.end else true to true
+            } else {
+                val origin = overlayOrigin.value
+                val target = controller.currentTarget?.bounds?.translate(-origin)
+                val obstacles = listOfNotNull(target, cardBounds.value?.translate(-origin))
+                    .filter { it.isFinite }
+                    .map { it.inflate(margin.toFloat()) }
+                val preferTop = when {
+                    step.freeRoamPosition == FreeRoamBarPosition.Top -> false
+                    step.freeRoamPosition != null -> true
+                    target != null && target.isFinite -> target.center.y >= height / 2f
+                    else -> true
+                }
+                val corners = listOf(preferTop to true, preferTop to false, !preferTop to true, !preferTop to false)
+                corners.firstOrNull { (cornerTop, cornerEnd) ->
+                    val left = x(cornerEnd).toFloat()
+                    val topEdge = y(cornerTop).toFloat()
+                    val rect = Rect(left, topEdge, left + row.width, topEdge + row.height)
+                    obstacles.none { it.overlaps(rect) }
+                } ?: corners.first()
+            }
+            memory.top = top
+            memory.end = end
+            memory.known = true
+            row.place(x(end), y(top))
         }
+    }
+}
+
+/**
+ * Small icon button for the `skipButton` slot of [TapTargetHost]: 40 dp look, 48 dp touch target,
+ * so it covers little of the screen.
+ *
+ * ```kotlin
+ * skipButton = { onSkip -> TourSkipIconButton(stringResource(Res.string.end_tour), onSkip) }
+ * ```
+ *
+ * @param contentDescription  What screen readers say, e.g. a localized "End tour".
+ * @param onSkip              The `onSkip` the slot gets; it ends the tour.
+ * @param modifier            Applied to the [FilledTonalIconButton].
+ * @param icon                The icon. Default: a close mark.
+ */
+@Composable
+fun TourSkipIconButton(
+    contentDescription: String,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector = Icons.Filled.Close,
+) {
+    FilledTonalIconButton(onClick = onSkip, modifier = modifier) {
+        Icon(icon, contentDescription = contentDescription)
+    }
+}
+
+/**
+ * Small icon button for the `skipSectionButton` slot of [TapTargetHost]: 40 dp look, 48 dp touch
+ * target.
+ *
+ * ```kotlin
+ * skipSectionButton = { onSkipSection -> TourSkipSectionIconButton(stringResource(Res.string.next_part), onSkipSection) }
+ * ```
+ *
+ * @param contentDescription  What screen readers say, e.g. a localized "Next part".
+ * @param onSkipSection       The `onSkipSection` the slot gets; it jumps to the next section.
+ * @param modifier            Applied to the [FilledTonalIconButton].
+ * @param icon                The icon. Default: skip-next.
+ */
+@Composable
+fun TourSkipSectionIconButton(
+    contentDescription: String,
+    onSkipSection: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector = Icons.Filled.SkipNext,
+) {
+    FilledTonalIconButton(onClick = onSkipSection, modifier = modifier) {
+        Icon(icon, contentDescription = contentDescription)
     }
 }
 
@@ -329,15 +510,6 @@ private fun TourBackHandler(controller: TapTargetController) {
         },
     )
 }
-
-/** Puts the skip button in the half of the screen opposite to the spotlight / free-roam bar. */
-private fun skipButtonAlignment(step: TourStep, target: TargetInfo?, screenHeightPx: Float): Alignment =
-    when {
-        step.freeRoamPosition == FreeRoamBarPosition.Top -> Alignment.BottomEnd
-        step.freeRoamPosition != null -> Alignment.TopEnd
-        target != null && target.bounds.center.y < screenHeightPx / 2f -> Alignment.BottomEnd
-        else -> Alignment.TopEnd
-    }
 
 @Composable
 private fun TourStepLayer(
@@ -816,8 +988,9 @@ private fun TourCard(
 ) {
     val containerColor = style.containerColor.takeOrElse { MaterialTheme.colorScheme.surface }
     val contentColor = style.contentColor.takeOrElse { contentColorFor(containerColor) }
+    val boundsSink = LocalTourCardBounds.current
     Surface(
-        modifier = modifier,
+        modifier = modifier.onGloballyPositioned { boundsSink?.value = it.boundsInRoot() },
         shape = style.shape,
         color = containerColor,
         contentColor = contentColor,

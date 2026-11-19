@@ -117,12 +117,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.2.0`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.2.1`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-taptarget/tags):
 
 ```toml
 [versions]
-kmpTaptarget = "1.2.0"
+kmpTaptarget = "1.2.1"
 
 [libraries]
 kmp-taptarget = { module = "com.github.lerchenflo.kmp-taptarget:kmp-taptarget", version.ref = "kmpTaptarget" }
@@ -526,9 +526,28 @@ skipButton = { onSkip ->
 }
 ```
 
-The button respects the safe drawing insets. It sits in the half of the screen opposite to the
-spotlight or free-roam bar, so it never covers the target. Pressing it calls
+For small controls use the icon variants: `TourSkipIconButton(contentDescription, onSkip)` (close
+mark) and `TourSkipSectionIconButton(contentDescription, onSkipSection)` (skip-next), both a
+`FilledTonalIconButton` with a 40 dp look and a 48 dp touch target; `icon` replaces the icon. Any
+other composable works in both slots.
+
+The controls respect the safe drawing insets and sit in the first screen corner that covers
+neither the highlighted target nor the step's card or free-roam bar: the corner opposite to the
+target first, then the other side, then the other half. Pressing the skip control calls
 `TapTargetController.skip()`, which also calls `onFinished`.
+
+**Explaining the controls.** `TourControls.SKIP_TOUR` and `TourControls.SKIP_SECTION` are the
+target ids of the two controls, so steps can point at them, e.g. at the start of the tour:
+
+```kotlin
+highlightStep(TourControls.SKIP_TOUR, title = Res.string.end_tour_here)
+highlightStep(TourControls.SKIP_SECTION, title = Res.string.next_part_here)
+```
+
+While such a step shows, both controls show (the skip-section control also outside a section) and
+a tap on them does nothing; "Got it" or a tap elsewhere continues. The controls keep their corner
+during these steps. An info step whose content shows the two icons with a line of text each works
+too.
 
 ## Wrong-tap feedback
 
@@ -723,6 +742,8 @@ TapTargetHost(
 | `TapTargetOverlay`                  | `@Composable` fun  | The overlay alone. Only needed if you build the root layout yourself. |
 | `TourTitle`, `TourDescription`      | `@Composable` fun  | Default text styles for bubble content.                               |
 | `TourSkipButton`                    | `@Composable` fun  | Ready-made skip button.                                               |
+| `TourSkipIconButton`, `TourSkipSectionIconButton` | `@Composable` fun | Small icon controls for the two slots.                  |
+| `TourControls`                      | object             | Target ids `SKIP_TOUR`, `SKIP_SECTION` of the controls.               |
 | `TourStrings`                       | data class         | Built-in overlay texts.                                               |
 | `TourSettings`                      | data class         | Behaviour and look of the tour, see [Settings](#settings).            |
 | `WrongTapFeedback`                  | data class         | Feedback for taps next to the target.                                 |
@@ -781,9 +802,9 @@ tried out before a release.
 (`:example-android` is a separate module because AGP 9 does not allow the Kotlin Multiplatform
 plugin and the Android application plugin in the same module.)
 
-The demo shows every feature in one tour:
+The demo shows every feature in one tour (the skip controls are the small icon buttons):
 
-1. Welcome info step.
+1. Welcome info step, then two highlight steps that point at the skip and next-section controls.
 2. Spotlight on the add button, exact tap required.
 3. Highlight step on the first item of a scrollable list: calm dashed outline, "Got it" button.
 4. An item that starts off screen: `beforeShow` scrolls the lazy list to it. Tap next to it to see
@@ -936,6 +957,9 @@ val LocalTapTargetController: ProvidableCompositionLocal<TapTargetController?>
 @Composable fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: TextAlign? = null)
 @Composable fun TourSkipButton(text: String, onSkip: () -> Unit, modifier: Modifier = Modifier)
 @Composable fun TourSkipSectionButton(text: String, onSkipSection: () -> Unit, modifier: Modifier = Modifier)
+@Composable fun TourSkipIconButton(contentDescription: String, onSkip: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector = Icons.Filled.Close)
+@Composable fun TourSkipSectionIconButton(contentDescription: String, onSkipSection: () -> Unit, modifier: Modifier = Modifier, icon: ImageVector = Icons.Filled.SkipNext)
+object TourControls { const val SKIP_TOUR: String; const val SKIP_SECTION: String }
 data class TourStrings(val tapHighlighted: String, val tapAnywhere: String, val continueButton: String, val skipTour: String, val previousStep: String, val highlightedTarget: String, val stepProgress: (current: Int, total: Int) -> String, val gotIt: String, val skipSection: String, val showSection: String)
 data class TourSettings(/* see the Settings section for every field and its default */)
 data class WrongTapFeedback(val tapIndicator: Boolean = true, val shakeBubble: Boolean = true, val flashHint: Boolean = true, val haptic: Boolean = true, val pulseTarget: Boolean = true, val showGuideAfter: Int = 3, val color: Color = Color.Unspecified) { companion object { val None: WrongTapFeedback } }
@@ -947,6 +971,15 @@ enum class FreeRoamBarPosition { Top, Center, Bottom }
 ```
 
 ## Changelog
+
+### 1.2.1
+- Small icon controls: `TourSkipIconButton` and `TourSkipSectionIconButton` (40 dp look, 48 dp
+  touch target). The slots still take any composable.
+- The skip controls now sit in the first corner that covers neither the target nor the step's card
+  or free-roam bar (before: only the half opposite to the target).
+- `TourControls.SKIP_TOUR` / `SKIP_SECTION`: target ids of the controls, so highlight steps can
+  explain them. During such a step both controls show and taps on them do nothing.
+- No API changes to existing functions.
 
 ### 1.2.0
 - **Sections**: `section(name) { }` in the tour DSL, `TapTargetController.skipSection()`,
