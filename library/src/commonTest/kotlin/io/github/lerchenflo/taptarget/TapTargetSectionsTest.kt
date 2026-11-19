@@ -4,6 +4,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
@@ -147,5 +152,61 @@ class TapTargetSectionsTest {
         mainClock.autoAdvance = true
         waitUntil(timeoutMillis = 5_000) { !controller.isActive }
         runOnIdle { assertNull(controller.currentStep) }
+    }
+}
+
+@OptIn(ExperimentalTestApi::class)
+class TapTargetOptionalSectionTest {
+
+    private val tour = tapTargetTour {
+        infoStep { }
+        optionalSection(name = "games", question = { }, showButtonText = "Show games", skipButtonText = "No games") {
+            infoStep(tags = setOf("games")) { }
+            infoStep(tags = setOf("games")) { }
+        }
+        infoStep { }
+    }
+
+    @Test
+    fun the_question_card_starts_the_section_and_only_shows_in_the_full_tour() {
+        val controller = TapTargetController(tour = tour)
+        controller.start()
+        assertEquals(5, controller.stepCount)
+        controller.next()
+        assertTrue(controller.currentStep?.sectionQuestion == true)
+        assertEquals("games", controller.currentSection)
+
+        assertTrue(controller.start(setOf("games")))
+        assertEquals(2, controller.stepCount)
+        assertFalse(controller.currentStep?.sectionQuestion == true)
+    }
+
+    @Test
+    fun skip_on_the_card_jumps_over_the_section_and_counts_it_as_seen() = runComposeUiTest {
+        val finished = mutableListOf<Set<String>>()
+        val controller = TapTargetController(tour = tour, onFinished = { tags -> finished += tags })
+        setContent { TapTargetHost(controller = controller) { Box(Modifier.size(10.dp)) } }
+        runOnIdle {
+            controller.start()
+            controller.next()
+        }
+        onNodeWithText("No games").performClick()
+        runOnIdle { assertEquals(4, controller.currentIndex) }
+        onRoot().performTouchInput { click(center) }
+        runOnIdle { assertEquals(listOf(setOf("games")), finished) }
+    }
+
+    @Test
+    fun show_on_the_card_goes_on_into_the_section() = runComposeUiTest {
+        val controller = TapTargetController(tour = tour)
+        setContent { TapTargetHost(controller = controller) { Box(Modifier.size(10.dp)) } }
+        runOnIdle {
+            controller.start()
+            controller.next()
+        }
+        onRoot().performTouchInput { click(topLeft) }   // next to the card: nothing happens
+        runOnIdle { assertEquals(1, controller.currentIndex) }
+        onNodeWithText("Show games").performClick()
+        runOnIdle { assertEquals(2, controller.currentIndex) }
     }
 }

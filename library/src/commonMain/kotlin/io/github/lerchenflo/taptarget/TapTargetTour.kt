@@ -83,6 +83,12 @@ val DefaultTourBackgroundColor: Color = Color.Black.copy(alpha = 0.65f)
  * @param section             Name of the section the step belongs to ([TourBuilder.section]), or null.
  *                            Consecutive steps with the same name form one section, which the user
  *                            can jump over with [TapTargetController.skipSection].
+ * @param sectionQuestion     True: the step is the question card of an optional section
+ *                            ([TourBuilder.optionalSection]): a centered card with two buttons. The
+ *                            show button ([continueButtonText]) goes on into the section, the skip
+ *                            button ([skipButtonText]) jumps over it. Taps next to the card do nothing.
+ * @param skipButtonText      Label of the skip button of a [sectionQuestion] card. Null:
+ *                            [TourStrings.skipSection].
  * @param content             Content of the info bubble, see [TourStepContent]. Null: the bubble
  *                            shows only the tap hint (or nothing).
  */
@@ -102,6 +108,8 @@ class TourStep(
     val targetTimeout: Duration? = null,
     val inFullTour: Boolean = true,
     val section: String? = null,
+    val sectionQuestion: Boolean = false,
+    val skipButtonText: (@Composable () -> String)? = null,
     val content: TourStepContent? = null,
 )
 
@@ -116,6 +124,7 @@ internal val TourStep.tapHint: TapHint?
     get() = when {
         freeRoamPosition != null -> null
         highlightOnly -> null   // shows a "Got it" button instead of a hint
+        sectionQuestion -> null // shows its two buttons instead of a hint
         id == null -> TapHint.ANYWHERE
         requireExactTap -> TapHint.EXACT
         else -> TapHint.ANYWHERE
@@ -203,6 +212,117 @@ class TourBuilder {
             builder()
         } finally {
             currentSection = outer
+        }
+    }
+
+    /**
+     * Adds an optional [section]: it starts with a question card ("Want to see the games too?")
+     * with a show and a skip button. Show goes on with the steps of [builder]; skip jumps over the
+     * whole section at once (no waiting), and its steps count as seen, like
+     * [TapTargetController.skipSection]. The card is centered, blocks the app, and a tap next to it
+     * does nothing.
+     *
+     * The card has no tags, so it only shows in a full [TapTargetController.start]; `start(tags)`
+     * and auto-launch run the tagged steps of the section without asking.
+     *
+     * ```kotlin
+     * optionalSection(
+     *     name = "games",
+     *     title = Res.string.games_question,
+     *     description = Res.string.games_question_desc,
+     *     showButtonText = Res.string.show_games,
+     *     skipButtonText = Res.string.skip_games,
+     * ) {
+     *     tapStep("games_tab", route = Route.Games, title = Res.string.games_tab)
+     * }
+     * ```
+     *
+     * @param name             Name of the section, see [section].
+     * @param title            Headline of the card ([TourTitle]). Null: no headline.
+     * @param description      Body text of the card ([TourDescription]). Null: no body text.
+     * @param showButtonText   Label of the button that shows the section. Null: [TourStrings.showSection].
+     * @param skipButtonText   Label of the button that skips the section. Null: [TourStrings.skipSection].
+     * @param route            Route of the screen to show behind the card. When another screen
+     *                         shows, the controller navigates there first. Null: no navigation.
+     * @param backgroundColor  Scrim color of the card step. Unspecified: [TourSettings.scrimColor].
+     * @param builder          Adds the steps of the section, like the [tapTargetTour] lambda.
+     */
+    fun optionalSection(
+        name: String,
+        title: StringResource? = null,
+        description: StringResource? = null,
+        showButtonText: StringResource? = null,
+        skipButtonText: StringResource? = null,
+        route: Any? = null,
+        backgroundColor: Color = Color.Unspecified,
+        builder: TourBuilder.() -> Unit,
+    ) {
+        addOptionalSection(
+            name = name,
+            route = route,
+            backgroundColor = backgroundColor,
+            showText = showButtonText?.let { res -> { stringResource(res) } },
+            skipText = skipButtonText?.let { res -> { stringResource(res) } },
+            question = resourceContent(title, description),
+            builder = builder,
+        )
+    }
+
+    /**
+     * Adds an optional [section] whose question card has custom content. See the [StringResource]
+     * variant for the behaviour.
+     *
+     * @param name             Name of the section, see [section].
+     * @param question         Content of the question card. Use [TourTitle] and [TourDescription]
+     *                         for the default text styles.
+     * @param showButtonText   Label of the button that shows the section. Null: [TourStrings.showSection].
+     * @param skipButtonText   Label of the button that skips the section. Null: [TourStrings.skipSection].
+     * @param route            Route of the screen to show behind the card. Null: no navigation.
+     * @param backgroundColor  Scrim color of the card step. Unspecified: [TourSettings.scrimColor].
+     * @param builder          Adds the steps of the section, like the [tapTargetTour] lambda.
+     */
+    fun optionalSection(
+        name: String,
+        question: TourStepContent,
+        showButtonText: String? = null,
+        skipButtonText: String? = null,
+        route: Any? = null,
+        backgroundColor: Color = Color.Unspecified,
+        builder: TourBuilder.() -> Unit,
+    ) {
+        addOptionalSection(
+            name = name,
+            route = route,
+            backgroundColor = backgroundColor,
+            showText = showButtonText?.let { text -> { text } },
+            skipText = skipButtonText?.let { text -> { text } },
+            question = question,
+            builder = builder,
+        )
+    }
+
+    private fun addOptionalSection(
+        name: String,
+        route: Any?,
+        backgroundColor: Color,
+        showText: (@Composable () -> String)?,
+        skipText: (@Composable () -> String)?,
+        question: TourStepContent?,
+        builder: TourBuilder.() -> Unit,
+    ) {
+        section(name) {
+            steps += TourStep(
+                id = null,
+                route = route,
+                backgroundColor = backgroundColor,
+                continueButtonText = showText,
+                inFullTour = inFullTour,
+                section = name,
+                sectionQuestion = true,
+                skipButtonText = skipText,
+                content = question,
+            )
+            builder()
         }
     }
 

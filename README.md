@@ -450,6 +450,14 @@ val onboardingTour = tapTargetTour {
         highlightStep("nickname", dependsOn = "chat_name", tags = setOf("chat-details")) { ... }
     }
     section("map") { ... }
+    optionalSection(
+        name = "games",
+        title = Res.string.games_question,             // "Want to see the games too?"
+        showButtonText = Res.string.show_games,
+        skipButtonText = Res.string.skip_games,
+    ) {
+        tapStep("games_tab", route = Route.Games, title = Res.string.games_tab)
+    }
     notInFullTour {
         highlightStep("group_members", route = Route.GroupDetails, tags = setOf("group-details")) { ... }
     }
@@ -462,6 +470,13 @@ val onboardingTour = tapTargetTour {
   jumped over count as seen. `TourSkipSectionButton` is a ready-made button; `currentSection` and
   `canSkipSection` are readable on the controller. Screen readers get a "Skip section" action
   (`TourStrings.skipSection`).
+- **Optional sections**: `optionalSection(name, ...) { ... }` is a section that starts with a
+  question card (title, description, show and skip button; `StringResource` or slot variant).
+  Show goes on into the section, skip jumps over all of it at once and its steps count as seen.
+  Taps next to the card do nothing. The card has no tags, so it only shows in the full tour;
+  `start(tags)` and auto-launch run the tagged steps of the section without asking. Default
+  labels: `TourStrings.showSection` / `skipSection`; the `continueButton` slot also styles the
+  show button.
 - **Dependent steps**: `dependsOn = "<id>"` names an earlier tap or highlight step. When that step
   is part of the run and was passed over (its target never appeared), the dependent step is passed
   over at once: no navigation, no waiting, no `onTargetMissing`. It stays unseen, so it can still
@@ -678,6 +693,7 @@ TapTargetHost(
 | `TapTargetTour.allTags`             | `Set<String>`      | Every tag used by a step.                                             |
 | `TapTargetTour.stepsWithTags(tags)` | function           | The steps `start(tags)` would run.                                    |
 | `TourBuilder.section(name) { }`     | function           | Groups steps into a section the user can jump over.                   |
+| `TourBuilder.optionalSection(name)` | function           | Section that asks first (show / skip card).                           |
 | `TourBuilder.notInFullTour { }`     | function           | Steps that `start()` leaves out (only `start(tags)` / auto-launch).   |
 | `TapTargetController.skipSection()` | function           | Jumps to the first step after the current section.                    |
 | `TapTargetController.canSkipSection`| `Boolean`          | `true` while more steps of the current section follow.                |
@@ -782,7 +798,8 @@ The demo shows every feature in one tour:
 10. Goodbye info step, back on the Home tab.
 
 Steps 2-4 and 7-9 are the sections "Home list" and "Settings": while they show, a "Next section"
-button next to "Skip tour" jumps to the end of the section. Steps 4, 7 and 8 carry the tag `"v2"`. The "Show only new steps" button in Settings runs only them
+button next to "Skip tour" jumps to the end of the section. "Settings" is optional: a card asks
+first whether to show it. Steps 4, 7 and 8 carry the tag `"v2"`. The "Show only new steps" button in Settings runs only them
 with `start(tags = setOf("v2"))`, as an app would after an update.
 
 Rotate the Android device during the tour: the current step survives. The Settings tab has
@@ -907,6 +924,8 @@ class TourBuilder {
 // every builder function also takes: tags: Set<String> = emptySet(), dependsOn: String? = null
 // tapStep and highlightStep also take: targetTimeout: Duration? = null
 // TourBuilder also has: fun section(name: String, builder: TourBuilder.() -> Unit); fun notInFullTour(builder: TourBuilder.() -> Unit)
+// fun optionalSection(name: String, title: StringResource? = null, description: StringResource? = null, showButtonText: StringResource? = null, skipButtonText: StringResource? = null, route: Any? = null, backgroundColor: Color = Color.Unspecified, builder: TourBuilder.() -> Unit)
+// fun optionalSection(name: String, question: @Composable ColumnScope.() -> Unit, showButtonText: String? = null, skipButtonText: String? = null, route: Any? = null, backgroundColor: Color = Color.Unspecified, builder: TourBuilder.() -> Unit)
 class TapTargetTour(val steps: List<TourStep>) { val allTags: Set<String>; fun stepsWithTags(tags: Collection<String>): List<TourStep> }
 @Composable fun rememberTapTargetController(tour: TapTargetTour, onNavigateToRoute: suspend (Any) -> Unit = {}, currentRoute: () -> Any? = { null }, isMatchingRoute: (targetRoute: Any, activeRoute: Any) -> Boolean = { t, a -> t::class == a::class }, onFinished: (seenTags: Set<String>) -> Unit = {}, tourSettings: TourSettings = TourSettings(), onStepShown: (index: Int, step: TourStep) -> Unit = { _, _ -> }, onSkipped: (index: Int) -> Unit = {}, onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> }, onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> }, onError: (Throwable) -> Unit = {}, autoStartTags: Set<String> = emptySet()): TapTargetController
 class TapTargetController { fun start(); fun start(tags: Collection<String>): Boolean; var autoStartTags: Set<String>; fun next(); fun previous(); fun goTo(index: Int); fun skip(); fun skipSection(); val canSkipSection: Boolean; val currentSection: String?; val isActive: Boolean; val isBlocking: Boolean; val currentIndex: Int; val stepCount: Int; val currentStep: TourStep?; var tourSettings: TourSettings }
@@ -917,7 +936,7 @@ val LocalTapTargetController: ProvidableCompositionLocal<TapTargetController?>
 @Composable fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: TextAlign? = null)
 @Composable fun TourSkipButton(text: String, onSkip: () -> Unit, modifier: Modifier = Modifier)
 @Composable fun TourSkipSectionButton(text: String, onSkipSection: () -> Unit, modifier: Modifier = Modifier)
-data class TourStrings(val tapHighlighted: String, val tapAnywhere: String, val continueButton: String, val skipTour: String, val previousStep: String, val highlightedTarget: String, val stepProgress: (current: Int, total: Int) -> String, val gotIt: String, val skipSection: String)
+data class TourStrings(val tapHighlighted: String, val tapAnywhere: String, val continueButton: String, val skipTour: String, val previousStep: String, val highlightedTarget: String, val stepProgress: (current: Int, total: Int) -> String, val gotIt: String, val skipSection: String, val showSection: String)
 data class TourSettings(/* see the Settings section for every field and its default */)
 data class WrongTapFeedback(val tapIndicator: Boolean = true, val shakeBubble: Boolean = true, val flashHint: Boolean = true, val haptic: Boolean = true, val pulseTarget: Boolean = true, val showGuideAfter: Int = 3, val color: Color = Color.Unspecified) { companion object { val None: WrongTapFeedback } }
 data class BubbleStyle(/* see the Settings section */)
@@ -936,10 +955,13 @@ enum class FreeRoamBarPosition { Top, Center, Bottom }
   count as seen.
 - **Dependent steps**: `dependsOn` on every step builder and `TourStep`. A step whose dependency
   was passed over in the run is passed over at once and stays unseen. Chains work.
+- **Optional sections**: `optionalSection(name, ...) { }` asks first with a show / skip card;
+  skip jumps over the section and counts its steps as seen. `TourStrings.showSection`.
 - **Steps outside the full tour**: `notInFullTour { }`; `start()` leaves them out.
 - **Per-step target timeout**: `targetTimeout` on tap and highlight steps (`Duration.ZERO` = no wait).
-- No breaking changes for named arguments. `TourStep` and `TourStrings` got new constructor
-  parameters (before `content` / at the end).
+- No breaking changes for named arguments. `TourStep` (before `content`) and `TourStrings` (at the
+  end) got new constructor parameters, and `TapTargetHost` / `TapTargetOverlay` a new
+  `skipSectionButton` slot (before `content`).
 
 ### 1.1.0
 - **Tags**: every step builder and `TourStep` take `tags: Set<String>`. `TapTargetTour.allTags` and

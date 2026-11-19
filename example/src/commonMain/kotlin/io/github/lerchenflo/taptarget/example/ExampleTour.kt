@@ -43,7 +43,7 @@ const val FAR_ITEM_INDEX = 24
 
 /**
  * One step per library feature, in the order a user meets them. Two sections ("Home list",
- * "Settings") show the "Next section" button.
+ * "Settings") show the "Next section" button; "Settings" is optional and asks first.
  * [homeListState] is the state of the Home list, so a step can scroll it before it shows.
  */
 fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
@@ -109,7 +109,16 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
         }
     }
 
-    section("Settings") {
+    // Optional: the tour asks first and can jump over the whole part
+    optionalSection(
+        name = "Settings",
+        question = {
+            TourTitle("Settings part")
+            TourDescription("Want to see how the tour works across tabs and with free-roam steps?")
+        },
+        showButtonText = "Show it",
+        skipButtonText = "Skip",
+    ) {
         tapStep(
             id = ExampleTargets.APPEARANCE_ENTRY,
             route = ExampleRoute.Settings,

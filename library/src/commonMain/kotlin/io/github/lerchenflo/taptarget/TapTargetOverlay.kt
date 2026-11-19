@@ -40,6 +40,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -173,8 +174,9 @@ fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: Text
  *                        the skip button, only while the current section has more steps after this
  *                        one. It gets `onSkipSection`. Use [TourSkipSectionButton] for the default
  *                        look. Null (the default) shows no such button.
- * @param continueButton  Replaces the button of free-roam steps ("Continue") and highlight steps
- *                        ("Got it"). It gets the button label and `onContinue`, which goes to the
+ * @param continueButton  Replaces the button of free-roam steps ("Continue"), highlight steps
+ *                        ("Got it") and the show button of optional-section question cards
+ *                        ([TourBuilder.optionalSection]). It gets the button label and `onContinue`, which goes to the
  *                        next step. Null (the default): a material3 [Button] on free-roam steps, a
  *                        [FilledTonalButton] on highlight steps.
  */
@@ -233,7 +235,8 @@ fun TapTargetOverlay(
     ) {
         TourStepLayer(controller, step, strings, continueButton)
 
-        val sectionButton = skipSectionButton?.takeIf { controller.canSkipSection }
+        // The question card of an optional section has its own skip button
+        val sectionButton = skipSectionButton?.takeIf { controller.canSkipSection && !step.sectionQuestion }
         if (skipButton != null || sectionButton != null) {
             val target = controller.currentTarget
             //Spotlight steps show the buttons only once the spotlight itself is drawn
@@ -353,6 +356,12 @@ private fun TourStepLayer(
             continueText = step.continueButtonText?.invoke() ?: strings.continueButton,
             continueButton = continueButton,
         )
+        return
+    }
+
+    // Question card of an optional section: show or skip it, taps next to the card do nothing.
+    if (step.sectionQuestion) {
+        SectionQuestionStep(controller, step, strings, continueButton)
         return
     }
 
@@ -877,6 +886,62 @@ private fun CenteredTourStep(controller: TapTargetController, step: TourStep, st
                         flash = { 0f },
                         flashColor = Color.Unspecified,
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Renders the question card of an optional section: full scrim, centered card with the step's
+ * content, a skip button and a show button (trailing, nearest the thumb). Taps next to the card
+ * are caught and do nothing.
+ */
+@Composable
+private fun SectionQuestionStep(
+    controller: TapTargetController,
+    step: TourStep,
+    strings: TourStrings,
+    continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)?,
+) {
+    val settings = controller.tourSettings
+    val bubbleStyle = settings.bubble
+    val scrimColor = step.backgroundColor.takeOrElse { settings.scrimColor }
+    val showText = step.continueButtonText?.invoke() ?: strings.showSection
+    val skipText = step.skipButtonText?.invoke() ?: strings.skipSection
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(step) {
+                detectTapGestures { }
+            }
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawRect(color = scrimColor)
+        }
+
+        TourCard(
+            style = bubbleStyle,
+            spacing = 8.dp,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(24.dp)
+                .widthIn(max = bubbleStyle.centeredMaxWidth)
+                .tourStepSemantics(controller, strings),
+        ) {
+            StepProgress(controller, strings, bubbleStyle)
+            step.content?.invoke(this)
+            Row(
+                modifier = Modifier.align(Alignment.End),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { controller.skipSection() }) { Text(skipText) }
+                if (continueButton != null) {
+                    continueButton(showText) { controller.next() }
+                } else {
+                    Button(onClick = { controller.next() }) { Text(showText) }
                 }
             }
         }

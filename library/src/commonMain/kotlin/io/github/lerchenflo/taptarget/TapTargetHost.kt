@@ -32,8 +32,9 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
  *                        the spotlight. It gets `onSkip`, which ends the tour
  *                        ([TapTargetController.skip]). Use [TourSkipButton] for the default look.
  *                        Null (the default) shows no skip button.
- * @param continueButton  Replaces the button of free-roam steps ("Continue") and highlight steps
- *                        ("Got it"). It gets the button label and `onContinue`, which goes to the
+ * @param continueButton  Replaces the button of free-roam steps ("Continue"), highlight steps
+ *                        ("Got it") and the show button of optional-section question cards
+ *                        ([TourBuilder.optionalSection]). It gets the button label and `onContinue`, which goes to the
  *                        next step. Null (the default): a material3 [androidx.compose.material3.Button]
  *                        on free-roam steps, a [androidx.compose.material3.FilledTonalButton] on
  *                        highlight steps.

@@ -207,4 +207,5 @@ shows everything. Breaking changes allowed; release as 1.1.0 after the user test
 - [x] `targetTimeout` per tap / highlight step (`Duration.ZERO` = no wait).
 - [x] `section(name) { }`, `skipSection()`, `canSkipSection`, `skipSectionButton` slot,
   `TourSkipSectionButton`, `TourStrings.skipSection`; skipped steps count as seen.
+- [x] `optionalSection(name, ...) { }`: question card with show / skip; skip = seen (user, 2026-11-19).
 - [x] Tests (`TapTargetSectionsTest`), demo sections, README, release 1.2.0.
