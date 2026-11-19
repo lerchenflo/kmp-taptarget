@@ -217,3 +217,12 @@ shows everything. Breaking changes allowed; release as 1.1.0 after the user test
 - [x] `TourControls.SKIP_TOUR` / `SKIP_SECTION` target ids; during such a step both controls show
   and are inert. Info card with icons stays possible (user: "both").
 - [x] Tests (`TapTargetControlsTest`), demo, README, release 1.2.1.
+
+## 19. Look of the control steps, lighter highlight steps, dark themes (user, 2026-11-19)
+
+- [x] Steps on `TourControls` ids: full spotlight look + solid and pulsing ring above the control.
+- [x] `highlightCutoutScrim` default 0.6 -> 0.15 (user picked from screenshots).
+- [x] Bubble default `surfaceContainerHigh` instead of `surface` (dark themes).
+- [x] Checked in the light theme and in SchneaggchatV3's flos theme (screenshots, not committed).
+  User: keep `primary` as highlight default; the app sets `highlightColor` (e.g. tertiary).
+- [x] Release 1.2.2.

@@ -63,6 +63,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -290,6 +291,39 @@ object TourControls {
     internal val ids: Set<String> = setOf(SKIP_TOUR, SKIP_SECTION)
 }
 
+/**
+ * While a step explains this control: a solid ring and a pulsing ring around it, drawn above the
+ * control (it lies above the scrim, so the spotlight outline alone is hidden behind it).
+ */
+@Composable
+private fun Modifier.explainedControlRing(active: Boolean, color: Color): Modifier {
+    if (!active) return this
+    val transition = rememberInfiniteTransition(label = "explainedControlRing")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "explainedControlRingProgress",
+    )
+    return drawWithContent {
+        drawContent()
+        val stroke = 3.dp.toPx()
+        fun ring(inflate: Float, alpha: Float) = drawRoundRect(
+            color = color,
+            topLeft = Offset(-inflate, -inflate),
+            size = Size(size.width + 2 * inflate, size.height + 2 * inflate),
+            cornerRadius = CornerRadius(size.minDimension / 2f + inflate),
+            style = Stroke(width = stroke),
+            alpha = alpha,
+        )
+        ring(inflate = 2.dp.toPx(), alpha = 1f)
+        ring(inflate = 2.dp.toPx() + 10.dp.toPx() * progress, alpha = (0.8f * (1f - progress)).coerceIn(0f, 1f))
+    }
+}
+
 /** Bounds (root coordinates) of the card / bar of the step that shows, written by [TourCard]. */
 private val LocalTourCardBounds = staticCompositionLocalOf<MutableState<Rect?>?> { null }
 
@@ -326,6 +360,7 @@ private fun TourControlsLayer(
     if (!spotlightReady && !explaining) return
 
     val insets = WindowInsets.safeDrawing
+    val ringColor = controller.tourSettings.highlightColor.takeOrElse { MaterialTheme.colorScheme.primary }
     Layout(
         content = {
             Row(
@@ -333,12 +368,20 @@ private fun TourControlsLayer(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (showSection && skipSectionButton != null) {
-                    Box(Modifier.tapTarget(TourControls.SKIP_SECTION)) {
+                    Box(
+                        Modifier
+                            .tapTarget(TourControls.SKIP_SECTION)
+                            .explainedControlRing(step.id == TourControls.SKIP_SECTION, ringColor)
+                    ) {
                         skipSectionButton { if (!explaining) controller.skipSection() }
                     }
                 }
                 if (skipButton != null) {
-                    Box(Modifier.tapTarget(TourControls.SKIP_TOUR)) {
+                    Box(
+                        Modifier
+                            .tapTarget(TourControls.SKIP_TOUR)
+                            .explainedControlRing(step.id == TourControls.SKIP_TOUR, ringColor)
+                    ) {
                         skipButton { if (!explaining) controller.skip() }
                     }
                 }
@@ -657,6 +700,9 @@ private fun SpotlightTourStep(
 
     val density = LocalDensity.current
     val spotlight = spotlightBounds(target.bounds, shape, with(density) { settings.iconPadding.toPx() })
+    // A step on the tour's own controls: the control is drawn above the scrim, so the calm look
+    // of highlight steps (grey cutout, dashed outline) would hide it. Use the full spotlight look.
+    val calm = step.highlightOnly && step.id !in TourControls.ids
 
     var bubbleSize by remember(step) { mutableStateOf(IntSize.Zero) }
     val wrongTap = remember(step) { WrongTapState() }
@@ -731,19 +777,19 @@ private fun SpotlightTourStep(
         // ── Scrim with punched-out spotlight ─────────────────────────
         Canvas(modifier = Modifier.fillMaxSize()) {
             // Highlight steps stay calm: they only inform, nothing to tap
-            val breathing = if (settings.spotlightBreathing && !step.highlightOnly) spotlightPulseProgress else 0f
+            val breathing = if (settings.spotlightBreathing && !calm) spotlightPulseProgress else 0f
             val pulse = spotlightPulse(breathing, spotlightInflatePx)
             val hole = spotlightPath(spotlight.inflate(pulse.inflatePx), shape, cornerRadiusPx + pulse.inflatePx)
             val scrim = Path().apply { addRect(size.toRect()) }
             drawPath(Path().apply { op(scrim, hole, PathOperation.Difference) }, color = scrimColor)
-            if (step.highlightOnly) {
+            if (calm) {
                 // Lighter scrim over the cutout: visible, but clearly not meant to be pressed
                 val cutoutBase = settings.highlightCutoutColor.takeOrElse { scrimColor }
                 val cutoutAlpha = cutoutBase.alpha * settings.highlightCutoutScrim.coerceIn(0f, 1f)
                 drawPath(hole, color = cutoutBase.copy(alpha = cutoutAlpha))
             }
             drawPath(hole, color = highlightColor, alpha = pulse.fillAlpha)
-            val outlineEffect = if (step.highlightOnly && settings.dashedHighlightOutline) {
+            val outlineEffect = if (calm && settings.dashedHighlightOutline) {
                 PathEffect.dashPathEffect(floatArrayOf(outlineStrokePx * 3f, outlineStrokePx * 2f))
             } else {
                 null
@@ -986,7 +1032,7 @@ private fun TourCard(
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val containerColor = style.containerColor.takeOrElse { MaterialTheme.colorScheme.surface }
+    val containerColor = style.containerColor.takeOrElse { MaterialTheme.colorScheme.surfaceContainerHigh }
     val contentColor = style.contentColor.takeOrElse { contentColorFor(containerColor) }
     val boundsSink = LocalTourCardBounds.current
     Surface(

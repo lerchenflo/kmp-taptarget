@@ -117,12 +117,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.2.1`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.2.2`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-taptarget/tags):
 
 ```toml
 [versions]
-kmpTaptarget = "1.2.1"
+kmpTaptarget = "1.2.2"
 
 [libraries]
 kmp-taptarget = { module = "com.github.lerchenflo.kmp-taptarget:kmp-taptarget", version.ref = "kmpTaptarget" }
@@ -302,7 +302,7 @@ highlightStep(
 
 The button text comes from `TourStrings.gotIt` or the step's `buttonText`, the button itself can be
 replaced with the `continueButton` slot of `TapTargetHost`, and `dashedHighlightOutline = false`
-in `TourSettings` draws a solid outline instead. `highlightCutoutScrim` (default `0.6f`) sets how
+in `TourSettings` draws a solid outline instead. `highlightCutoutScrim` (default `0.15f`) sets how
 dark the cutout is, as a fraction of the scrim: `0f` leaves it fully clear, `1f` makes it as dark as
 the rest; `highlightCutoutColor` (for example `MaterialTheme.colorScheme.outline`) greys the
 element out instead of darkening it, and `highlightOutlineWidth` (default `4.dp`) sets the outline.
@@ -545,8 +545,13 @@ highlightStep(TourControls.SKIP_SECTION, title = Res.string.next_part_here)
 ```
 
 While such a step shows, both controls show (the skip-section control also outside a section) and
-a tap on them does nothing; "Got it" or a tap elsewhere continues. The controls keep their corner
-during these steps. An info step whose content shows the two icons with a line of text each works
+a tap on them does nothing; "Got it" or a tap elsewhere continues. These steps use the full
+spotlight look plus a ring drawn above the control, since the control lies above the scrim. The
+controls keep their corner during these steps.
+
+**Dark themes**: the outline, rings and info icon use `TourSettings.highlightColor`, by default
+`primary`. When `primary` is dark (e.g. a dark blue on a near-black background), pass a lighter
+color such as `highlightColor = MaterialTheme.colorScheme.tertiary`. An info step whose content shows the two icons with a line of text each works
 too.
 
 ## Wrong-tap feedback
@@ -659,7 +664,7 @@ TourSettings(
     spotlightBreathing = true,                       // the spotlight slowly grows and shrinks
     showTapRing = true,                              // pulsing ring on exact-tap steps
     dashedHighlightOutline = true,                   // highlightStep: dashed instead of solid outline
-    highlightCutoutScrim = 0.6f,                     // highlightStep: dimming inside the cutout (0 = clear, 1 = like the scrim)
+    highlightCutoutScrim = 0.15f,                    // highlightStep: dimming inside the cutout (0 = clear, 1 = like the scrim)
     highlightCutoutColor = Color.Unspecified,        // highlightStep: cutout color, Unspecified = scrim; a gray greys it out
     outlineWidth = 3.dp,                             // spotlight outline
     highlightOutlineWidth = 4.dp,                    // highlightStep outline
@@ -678,7 +683,7 @@ TourSettings(
         maxWidth = 260.dp,                           // bubble next to a spotlight
         centeredMaxWidth = 280.dp,                   // card of info steps
         shape = RoundedCornerShape(12.dp),
-        containerColor = Color.Unspecified,          // Unspecified = surface
+        containerColor = Color.Unspecified,          // Unspecified = surfaceContainerHigh
         contentColor = Color.Unspecified,            // Unspecified = contentColorFor(container)
         shadowElevation = 4.dp,
         contentPadding = PaddingValues(12.dp),
@@ -971,6 +976,16 @@ enum class FreeRoamBarPosition { Top, Center, Bottom }
 ```
 
 ## Changelog
+
+### 1.2.2
+- Steps on the tour's controls (`TourControls.SKIP_TOUR` / `SKIP_SECTION`) use the full spotlight
+  look (no grey cutout, solid breathing outline) and draw a solid and a pulsing ring above the
+  control, so it stands out although it lies above the scrim.
+- Lighter highlight steps: `highlightCutoutScrim` default `0.6f` -> `0.15f`.
+- Bubbles, cards and the free-roam bar default to `surfaceContainerHigh` instead of `surface`, so
+  they stand out from the scrim in dark themes.
+- In dark themes with a dark `primary`, set `TourSettings.highlightColor` to a lighter color (e.g.
+  `tertiary`): the outline and rings use it.
 
 ### 1.2.1
 - Small icon controls: `TourSkipIconButton` and `TourSkipSectionIconButton` (40 dp look, 48 dp

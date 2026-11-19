@@ -149,7 +149,9 @@ data class WrongTapFeedback(
  *                          spotlight, or above it when there is no room below.
  * @param centeredMaxWidth  Maximum width of the centered card of info steps.
  * @param shape             Shape of bubble, card and bar.
- * @param containerColor    Background. Unspecified: `MaterialTheme.colorScheme.surface`.
+ * @param containerColor    Background. Unspecified: `MaterialTheme.colorScheme.surfaceContainerHigh`
+ *                          (the raised-card color, so the bubble stands out from the scrim also in
+ *                          dark themes).
  * @param contentColor      Text and icon color. Unspecified: `contentColorFor(containerColor)`.
  * @param shadowElevation   Shadow of bubble, card and bar.
  * @param contentPadding    Padding inside bubble, card and bar.
@@ -233,7 +235,7 @@ data class TourSettings(
     val spotlightBreathing: Boolean = true,
     val showTapRing: Boolean = true,
     val dashedHighlightOutline: Boolean = true,
-    val highlightCutoutScrim: Float = 0.6f,
+    val highlightCutoutScrim: Float = 0.15f,
     val highlightCutoutColor: Color = Color.Unspecified,
     val outlineWidth: Dp = 3.dp,
     val highlightOutlineWidth: Dp = 4.dp,
