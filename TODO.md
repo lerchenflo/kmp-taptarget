@@ -180,3 +180,20 @@ All parts can be switched off one by one with `WrongTapFeedback`.
   `./gradlew :example-android:installDebug`).
 - [ ] Then: first tag + JitPack build, then switch SchneaggchatV3 (see its `plans/Todo.md`) and the
   other apps (their TODO files).
+
+## 16. Tags, filtered start and auto-launch (request from SchneaggchatV3, user, 2026-11-19)
+
+Goal: every update can show only its new steps, the user never misses a step, the retake button
+shows everything. Breaking changes allowed; release as 1.1.0 after the user tested locally.
+
+- [x] `tags` on `TourStep` and every builder function; `TapTargetTour.allTags`, `stepsWithTags()`.
+- [x] `start(tags): Boolean` (any tag matches, untagged steps never, no match = `onFinished` at once).
+- [x] Breaking: `onFinished(seenTags)` replaces `onFinished()`: a tag is seen when every step with it
+  was shown or skipped by the user; steps passed over for a missing target stay unseen.
+- [x] `autoStartTags`: pending steps of the open screen launch by themselves once their target is
+  stable; the run never navigates and ends when the screen changes.
+- [x] `TourSettings.targetTimeoutWithoutRoute = 500.milliseconds`.
+- [x] Saved state keeps the running steps and the seen steps.
+- [x] Tests (`TapTargetTagsTest`), demo button "Show only new steps", README section.
+- [ ] User tests the demo locally.
+- [ ] Release 1.1.0 (changelog, install version, tag, JitPack), send the version to SchneaggchatV3.

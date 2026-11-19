@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -190,9 +191,13 @@ data class BubbleStyle(
  *                                 (in the direction the user was moving). False: the step keeps
  *                                 waiting and shows as soon as the target appears; until then no
  *                                 overlay is drawn.
- * @param targetTimeout            How long a step waits for its target to be laid out (after the
- *                                 navigation to its route). The app's `onTargetMissing` is called
- *                                 when it runs out.
+ * @param targetTimeout            How long a step with a route waits for its target to be laid out
+ *                                 (after the navigation to its route). The app's `onTargetMissing`
+ *                                 is called when it runs out.
+ * @param targetTimeoutWithoutRoute How long a step without route waits for its target. Shorter than
+ *                                 [targetTimeout]: the target should already be on the open screen,
+ *                                 so a missing one (e.g. UI that is not unlocked yet) is passed
+ *                                 over quickly. Such a step does not count as seen.
  * @param autoScroll               When a step starts, scroll its target to the middle of the screen
  *                                 if it sits in a vertically scrollable container and is outside the
  *                                 middle 40% of the screen.
@@ -227,6 +232,7 @@ data class TourSettings(
     val highlightOutlineWidth: Dp = 4.dp,
     val skipMissingTargets: Boolean = true,
     val targetTimeout: Duration = 2.seconds,
+    val targetTimeoutWithoutRoute: Duration = 500.milliseconds,
     val autoScroll: Boolean = true,
     val passTapToTarget: Boolean = false,
     val wrongTapFeedback: WrongTapFeedback = WrongTapFeedback(),

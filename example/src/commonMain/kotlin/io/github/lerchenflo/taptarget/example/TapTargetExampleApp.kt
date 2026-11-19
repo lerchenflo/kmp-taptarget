@@ -74,7 +74,7 @@ fun TapTargetExampleApp() {
             onWrongTap = { index, position -> println("Tour: wrong tap on step ${index + 1} at $position") },
             onSkipped = { index -> println("Tour: skipped on step ${index + 1}") },
             onTargetMissing = { index, id -> println("Tour: target $id of step ${index + 1} not found") },
-            onFinished = { println("Tour: finished") },
+            onFinished = { seenTags -> println("Tour: finished, seen tags $seenTags") },
         )
 
         // Starts the tour once. A tour that was running before the activity was recreated is

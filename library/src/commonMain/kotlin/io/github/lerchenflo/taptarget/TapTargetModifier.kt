@@ -186,8 +186,9 @@ private class TapTargetNode(private var id: String) :
         autoScrollJob?.cancel()
         val controller = controller ?: return
         autoScrollJob = coroutineScope.launch {
-            // -1 while the tour is not running, so start() on step 0 also counts as a change
-            snapshotFlow { if (controller.isActive) controller.currentIndex else -1 }
+            // Null while the tour is not running, so start() on step 0 also counts as a change.
+            // The step itself, not its index: a filtered start can swap the step behind an index.
+            snapshotFlow { controller.currentStep }
                 .collectLatest {
                     if (controller.currentStep?.id == id && controller.tourSettings.autoScroll) {
                         try {

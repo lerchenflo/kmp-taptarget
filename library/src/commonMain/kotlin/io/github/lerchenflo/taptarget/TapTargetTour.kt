@@ -62,6 +62,10 @@ val DefaultTourBackgroundColor: Color = Color.Black.copy(alpha = 0.65f)
  * @param highlightOnly       The step only shows the target: calm dashed outline, lightly dimmed
  *                            cutout, a "Got it" button. A tap on the target does nothing, a tap
  *                            anywhere else continues. See [TourBuilder.highlightStep].
+ * @param tags                Free strings that pick this step for `start(tags)` and for auto-launch
+ *                            ([TapTargetController.autoStartTags]), e.g. "chat" or "chat-3.0.21".
+ *                            The library gives them no meaning. Use one tag per screen. Empty (the
+ *                            default): the step only runs in a full [TapTargetController.start].
  * @param content             Content of the info bubble, see [TourStepContent]. Null: the bubble
  *                            shows only the tap hint (or nothing).
  */
@@ -76,8 +80,12 @@ class TourStep(
     val spotlightShape: SpotlightShape? = null,
     val beforeShow: (suspend () -> Unit)? = null,
     val highlightOnly: Boolean = false,
+    val tags: Set<String> = emptySet(),
     val content: TourStepContent? = null,
 )
+
+/** True when at least one of the step's [TourStep.tags] is in [wanted]. */
+internal fun TourStep.matchesAnyTag(wanted: Set<String>): Boolean = tags.any { it in wanted }
 
 /** Whether a step expects a tap on the highlighted target or a tap anywhere on screen. */
 internal enum class TapHint { EXACT, ANYWHERE }
@@ -100,7 +108,26 @@ internal val TourStep.isBlocking: Boolean get() = freeRoamPosition == null
  *
  * @property steps  The steps in the order they show.
  */
-class TapTargetTour(val steps: List<TourStep>)
+class TapTargetTour(val steps: List<TourStep>) {
+    /**
+     * Every tag used by a step, in tour order. The app's pending tags for
+     * [TapTargetController.autoStartTags] are usually `allTags - seenTags`.
+     */
+    val allTags: Set<String> = steps.flatMapTo(LinkedHashSet()) { it.tags }
+
+    /**
+     * The steps `start(tags)` ([TapTargetController.start]) would run: every step with at least
+     * one of [tags] in its [TourStep.tags], in tour order. Steps without tags are never part of
+     * it. Use it e.g. to check for new steps before asking the user to see them.
+     *
+     * @param tags  The tags to look for. Compared as plain strings, no version logic.
+     * @return The matching steps, empty when none matches.
+     */
+    fun stepsWithTags(tags: Collection<String>): List<TourStep> {
+        val wanted = tags.toSet()
+        return steps.filter { step -> step.matchesAnyTag(wanted) }
+    }
+}
 
 /**
  * Builder populated inside the [tapTargetTour] lambda. Steps show in the order they are added.
@@ -143,6 +170,9 @@ class TourBuilder {
      * @param spotlightShape   Shape of the spotlight. Null (the default): [TourSettings.spotlightShape].
      * @param beforeShow       Runs after the navigation and before the step waits for its target,
      *                         e.g. to scroll a lazy list to an item that is not composed yet.
+     * @param tags             Free strings that pick this step for `start(tags)` and for
+     *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
+     *                         (the default): only a full start runs it.
      * @param content          Content of the bubble next to the spotlight. Use [TourTitle] and
      *                         [TourDescription] for the default text styles.
      */
@@ -154,6 +184,7 @@ class TourBuilder {
         passTapToTarget: Boolean? = null,
         spotlightShape: SpotlightShape? = null,
         beforeShow: (suspend () -> Unit)? = null,
+        tags: Set<String> = emptySet(),
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -164,6 +195,7 @@ class TourBuilder {
             passTapToTarget = passTapToTarget,
             spotlightShape = spotlightShape,
             beforeShow = beforeShow,
+            tags = tags,
             content = content,
         )
     }
@@ -193,6 +225,9 @@ class TourBuilder {
      * @param beforeShow       Runs after the navigation and before the step waits for its target,
      *                         e.g. to scroll a lazy list to an item that is not composed yet.
      * @param spotlightShape   Shape of the spotlight. Null (the default): [TourSettings.spotlightShape].
+     * @param tags             Free strings that pick this step for `start(tags)` and for
+     *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
+     *                         (the default): only a full start runs it.
      */
     fun tapStep(
         id: String,
@@ -205,6 +240,7 @@ class TourBuilder {
         beforeShow: (suspend () -> Unit)? = null,
         // Not a function type as last parameter, so a trailing lambda always picks the slot variant
         spotlightShape: SpotlightShape? = null,
+        tags: Set<String> = emptySet(),
     ) {
         steps += TourStep(
             id = id,
@@ -214,6 +250,7 @@ class TourBuilder {
             passTapToTarget = passTapToTarget,
             spotlightShape = spotlightShape,
             beforeShow = beforeShow,
+            tags = tags,
             content = resourceContent(title, description),
         )
     }
@@ -235,6 +272,9 @@ class TourBuilder {
      * @param buttonText       Label of the button that continues. Null: [TourStrings.gotIt].
      * @param beforeShow       Runs after the navigation and before the step waits for its target,
      *                         e.g. to scroll a lazy list to an item that is not composed yet.
+     * @param tags             Free strings that pick this step for `start(tags)` and for
+     *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
+     *                         (the default): only a full start runs it.
      * @param content          Content of the bubble, shown next to an info icon. Use [TourTitle] and
      *                         [TourDescription] for the default text styles.
      */
@@ -245,6 +285,7 @@ class TourBuilder {
         spotlightShape: SpotlightShape? = null,
         buttonText: String? = null,
         beforeShow: (suspend () -> Unit)? = null,
+        tags: Set<String> = emptySet(),
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -256,6 +297,7 @@ class TourBuilder {
             spotlightShape = spotlightShape,
             beforeShow = beforeShow,
             highlightOnly = true,
+            tags = tags,
             content = content,
         )
     }
@@ -279,6 +321,9 @@ class TourBuilder {
      * @param beforeShow       Runs after the navigation and before the step waits for its target,
      *                         e.g. to scroll a lazy list to an item that is not composed yet.
      * @param spotlightShape   Shape of the spotlight. Null (the default): [TourSettings.spotlightShape].
+     * @param tags             Free strings that pick this step for `start(tags)` and for
+     *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
+     *                         (the default): only a full start runs it.
      */
     fun highlightStep(
         id: String,
@@ -290,6 +335,7 @@ class TourBuilder {
         beforeShow: (suspend () -> Unit)? = null,
         // Not a function type as last parameter, so a trailing lambda always picks the slot variant
         spotlightShape: SpotlightShape? = null,
+        tags: Set<String> = emptySet(),
     ) {
         steps += TourStep(
             id = id,
@@ -300,6 +346,7 @@ class TourBuilder {
             spotlightShape = spotlightShape,
             beforeShow = beforeShow,
             highlightOnly = true,
+            tags = tags,
             content = resourceContent(title, description),
         )
     }
@@ -312,6 +359,9 @@ class TourBuilder {
      *                         shows, the controller navigates there first. Null: no navigation.
      * @param backgroundColor  Scrim color of this step. Unspecified: [TourSettings.scrimColor].
      * @param beforeShow       Runs after the navigation and before the step shows.
+     * @param tags             Free strings that pick this step for `start(tags)` and for
+     *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
+     *                         (the default): only a full start runs it.
      * @param content          Content of the centered card. Use [TourTitle] and [TourDescription]
      *                         for the default text styles.
      */
@@ -319,6 +369,7 @@ class TourBuilder {
         route: Any? = null,
         backgroundColor: Color = Color.Unspecified,
         beforeShow: (suspend () -> Unit)? = null,
+        tags: Set<String> = emptySet(),
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -326,6 +377,7 @@ class TourBuilder {
             route = route,
             backgroundColor = backgroundColor,
             beforeShow = beforeShow,
+            tags = tags,
             content = content,
         )
     }
@@ -342,6 +394,9 @@ class TourBuilder {
      *                         shows, the controller navigates there first. Null: no navigation.
      * @param beforeShow       Runs after the navigation and before the step shows.
      * @param backgroundColor  Scrim color of this step. Unspecified: [TourSettings.scrimColor].
+     * @param tags             Free strings that pick this step for `start(tags)` and for
+     *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
+     *                         (the default): only a full start runs it.
      */
     fun infoStep(
         title: StringResource? = null,
@@ -349,12 +404,14 @@ class TourBuilder {
         route: Any? = null,
         beforeShow: (suspend () -> Unit)? = null,
         backgroundColor: Color = Color.Unspecified,
+        tags: Set<String> = emptySet(),
     ) {
         steps += TourStep(
             id = null,
             route = route,
             backgroundColor = backgroundColor,
             beforeShow = beforeShow,
+            tags = tags,
             content = resourceContent(title, description),
         )
     }
@@ -372,6 +429,9 @@ class TourBuilder {
      * @param position            Where the bar sits, see [FreeRoamBarPosition]. Default: bottom.
      * @param continueButtonText  Label of the Continue button. Null: [TourStrings.continueButton].
      * @param beforeShow          Runs after the navigation and before the step shows.
+     * @param tags                Free strings that pick this step for `start(tags)` and for
+     *                            auto-launch ([TapTargetController.autoStartTags]), e.g. "chat".
+     *                            Empty (the default): only a full start runs it.
      * @param content             Content of the bar, above the Continue button. Use [TourTitle] and
      *                            [TourDescription] for the default text styles.
      */
@@ -380,6 +440,7 @@ class TourBuilder {
         position: FreeRoamBarPosition = FreeRoamBarPosition.Bottom,
         continueButtonText: String? = null,
         beforeShow: (suspend () -> Unit)? = null,
+        tags: Set<String> = emptySet(),
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -388,6 +449,7 @@ class TourBuilder {
             freeRoamPosition = position,
             continueButtonText = continueButtonText?.let { text -> { text } },
             beforeShow = beforeShow,
+            tags = tags,
             content = content,
         )
     }
@@ -407,6 +469,9 @@ class TourBuilder {
      * @param position            Where the bar sits, see [FreeRoamBarPosition]. Default: bottom.
      * @param beforeShow          Runs after the navigation and before the step shows.
      * @param continueButtonText  Label of the Continue button. Null: [TourStrings.continueButton].
+     * @param tags                Free strings that pick this step for `start(tags)` and for
+     *                            auto-launch ([TapTargetController.autoStartTags]), e.g. "chat".
+     *                            Empty (the default): only a full start runs it.
      */
     fun freeRoamStep(
         title: StringResource? = null,
@@ -415,6 +480,7 @@ class TourBuilder {
         position: FreeRoamBarPosition = FreeRoamBarPosition.Bottom,
         beforeShow: (suspend () -> Unit)? = null,
         continueButtonText: StringResource? = null,
+        tags: Set<String> = emptySet(),
     ) {
         steps += TourStep(
             id = null,
@@ -422,6 +488,7 @@ class TourBuilder {
             freeRoamPosition = position,
             continueButtonText = continueButtonText?.let { res -> { stringResource(res) } },
             beforeShow = beforeShow,
+            tags = tags,
             content = resourceContent(title, description),
         )
     }

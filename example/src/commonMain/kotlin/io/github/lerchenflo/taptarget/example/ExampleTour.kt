@@ -29,6 +29,12 @@ object ExampleTargets {
     const val RESTART_BUTTON = "restart_button"
 }
 
+/**
+ * Tag of the steps the demo treats as "new in version 2". The "Show only new steps" button in
+ * Settings runs only them with `start(tags)`.
+ */
+const val NEW_STEPS_TAG = "v2"
+
 /** The item whose detail screen the tour opens. */
 const val TOUR_ITEM_ID = 3
 
@@ -68,6 +74,7 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
         route = ExampleRoute.Home,
         // Lazy list items off screen are not composed, so scroll there before the step waits
         beforeShow = { homeListState.animateScrollToItem(FAR_ITEM_INDEX - 2) },
+        tags = setOf(NEW_STEPS_TAG),
     ) {
         TourTitle("Wrong-tap feedback")
         TourDescription(
@@ -104,12 +111,13 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
         route = ExampleRoute.Settings,
         // The real tap opens the Appearance screen, the tour follows
         passTapToTarget = true,
+        tags = setOf(NEW_STEPS_TAG),
     ) {
         TourTitle("Pass-through tap")
         TourDescription("The tour switched to the Settings tab. Your tap on Appearance really opens it.")
     }
 
-    freeRoamStep(route = ExampleRoute.Appearance, position = FreeRoamBarPosition.Bottom) {
+    freeRoamStep(route = ExampleRoute.Appearance, position = FreeRoamBarPosition.Bottom, tags = setOf(NEW_STEPS_TAG)) {
         TourTitle("Free roam")
         TourDescription("The app stays usable. Try the dark mode switch, then press Continue.")
     }

@@ -24,6 +24,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -172,6 +173,13 @@ fun SettingsScreen(
                 .tapTarget(ExampleTargets.RESTART_BUTTON),
         ) {
             Text("Restart tour")
+        }
+        // Runs only the steps tagged as new, e.g. after an app update
+        OutlinedButton(
+            onClick = { tourController?.start(tags = setOf(NEW_STEPS_TAG)) },
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        ) {
+            Text("Show only new steps (tag \"$NEW_STEPS_TAG\")")
         }
     }
 }

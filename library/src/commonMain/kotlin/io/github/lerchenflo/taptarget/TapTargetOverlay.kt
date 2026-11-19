@@ -182,10 +182,14 @@ fun TapTargetOverlay(
 ) {
     // Composed before the early return, so the handler stays registered across steps
     TourBackHandler(controller)
+    // Also before the early return: auto-launch watches while no tour runs
+    LaunchedEffect(controller) { controller.watchAutoLaunch() }
+    LaunchedEffect(controller) { controller.watchAutoRunRoute() }
 
     if (!controller.isActive) return
 
-    LaunchedEffect(controller.currentIndex) {
+    // Keyed on the step too: a filtered start can swap the step behind the same index
+    LaunchedEffect(controller.currentIndex, controller.currentStep) {
         //Effect gets cancelled when the step changes meanwhile, so this only handles the stuck step
         if (controller.ensureCurrentStepVisible()) {
             controller.notifyStepShown()
@@ -200,7 +204,7 @@ fun TapTargetOverlay(
 
     val focusRequester = remember { FocusRequester() }
     val keyboardEnabled = settings.keyboardNavigation && step.isBlocking
-    LaunchedEffect(controller.currentIndex, keyboardEnabled) {
+    LaunchedEffect(controller.currentIndex, step, keyboardEnabled) {
         // Fails silently when the window cannot take focus (e.g. while it is in the background)
         if (keyboardEnabled) runCatching { focusRequester.requestFocus() }
     }

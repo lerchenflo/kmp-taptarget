@@ -25,6 +25,7 @@ TapTargetHost(controller = rememberTapTargetController(tour = myTour)) {
 - [Custom bubble content](#custom-bubble-content)
 - [Navigation](#navigation)
 - [Starting, restarting and saving progress](#starting-restarting-and-saving-progress)
+- [Tags: new steps and auto-launch](#tags-new-steps-and-auto-launch)
 - [Localization](#localization)
 - [Skip button](#skip-button)
 - [Wrong-tap feedback](#wrong-tap-feedback)
@@ -77,7 +78,9 @@ TapTargetHost(controller = rememberTapTargetController(tour = myTour)) {
 - **Localizable**: every built-in text can be replaced, and the tour DSL accepts `StringResource`
   from Compose resources directly.
 - **Robust**: a step whose target never appears (for example a button hidden by state) is skipped
-  after 2 seconds instead of blocking the tour.
+  after 2 seconds (0.5 seconds for a step without route) instead of blocking the tour.
+- **Tags and auto-launch**: tag steps (e.g. `"chat"`, `"chat-3.0.21"`), run only some of them with
+  `start(tags)`, or let new and unlocked steps start by themselves on their screen, once.
 - **No setup in your screens**: `Modifier.tapTarget(id)` is the only thing a screen needs. Without
   a `TapTargetHost` above it, the modifier does nothing, so previews and tests are unaffected.
 
@@ -192,7 +195,7 @@ fun App(viewModel: AppViewModel) {
         tour = onboardingTour,
         onNavigateToRoute = { route -> navigator.navigate(route as Route) },
         currentRoute = { backStack.lastOrNull() },
-        onFinished = { viewModel.onAction(AppAction.OnboardingFinished) },  // persist "seen" here
+        onFinished = { seenTags -> viewModel.onAction(AppAction.OnboardingFinished) },  // persist "seen" here
     )
 
     LaunchedEffect(state.showOnboarding) {
@@ -356,9 +359,10 @@ val tourController = rememberTapTargetController(
 
 ## Starting, restarting and saving progress
 
-- `start()` resets the tour to the first step and shows it.
-- The library stores nothing. Save a "tour seen" flag in `onFinished` (called after the last step
-  and on skip) and decide in your app when to call `start()`.
+- `start()` resets the tour to the first step and shows it. `start(tags)` runs only the tagged
+  steps, see [Tags](#tags-new-steps-and-auto-launch).
+- The library stores nothing. Save a "tour seen" flag (or the seen tags) in `onFinished` (called
+  after the last step and on skip) and decide in your app when to call `start()`.
 - `rememberTapTargetController` saves the current step and the running state with
   `rememberSaveable`. After a rotation or process death on Android the tour continues where it was.
   **Do not call `start()` unconditionally in `LaunchedEffect(Unit)`**: it would reset a restored
@@ -371,6 +375,66 @@ composable inside `TapTargetHost` can do this:
 val tourController = LocalTapTargetController.current
 Button(onClick = { tourController?.start() }) { Text("Restart tour") }
 ```
+
+## Tags: new steps and auto-launch
+
+Give steps `tags` to show only some of them: the steps an update added, or the steps of a screen
+the user opens for the first time. Tags are plain strings; the library gives them no meaning and
+has no version logic.
+
+```kotlin
+val onboardingTour = tapTargetTour {
+    infoStep(title = Res.string.welcome)                                   // no tags: full tour only
+    tapStep("new_chat", title = Res.string.new_chat, tags = setOf("main"))
+    tapStep("chat_input", route = Route.Chat, tags = setOf("chat")) { ... }
+    tapStep("chat_poll", route = Route.Chat, tags = setOf("chat", "chat-3.0.21")) { ... }
+    tapStep("friend_list", tags = setOf("friends")) { ... }                  // only after the first friend
+}
+```
+
+**Three ways to run the tour**
+
+| Call                       | Runs                                                                         |
+|----------------------------|------------------------------------------------------------------------------|
+| `start()`                  | Every step, e.g. from a "show tour again" button.                            |
+| `start(tags)`              | Steps with at least one of the tags, in tour order. Returns `false` when none matches (the tour does not show, `onFinished` is called at once). |
+| `autoStartTags = ...`      | Auto-launch: pending steps start by themselves on their screen (below).      |
+
+**Auto-launch.** Pass the tags the user has not seen yet as `autoStartTags`. When no tour runs and
+a `tapTarget` of a step with such a tag appears, the controller waits until the target stops moving
+(enter animation) and runs the pending steps of the open screen: steps whose `route` matches the
+current route, and steps without route whose target is on screen. It never navigates, and it ends
+when the screen changes; steps not shown yet launch the next time their screen shows. A step that
+was shown once does not launch again while the app runs.
+
+**Seen tags.** `onFinished(seenTags)` gets the tags the user has now seen: a tag counts as seen
+when every step that carries it was shown, or skipped by the user, since the controller was
+created. A step passed over because its target never appeared (UI not unlocked yet) is not seen,
+so its tag stays pending and launches once the UI appears. Store the set and pass the rest back:
+
+```kotlin
+val seenTags by viewModel.seenTourTags.collectAsStateWithLifecycle()   // null until loaded
+val tourController = rememberTapTargetController(
+    tour = onboardingTour,
+    onNavigateToRoute = { route -> navigator.navigate(route as Route) },
+    currentRoute = { backStack.lastOrNull() },
+    autoStartTags = seenTags?.let { onboardingTour.allTags - it }.orEmpty(),   // empty = off
+    onFinished = { tags -> viewModel.onAction(AppAction.TourTagsSeen(tags)) },
+)
+```
+
+Rules for tags:
+
+- **One tag per screen.** A tag counts as seen only when all of its steps were seen, so a tag on two
+  screens stays pending until the user saw both.
+- Give steps that appear later (unlocked UI) their own tag, so the rest of the screen does not wait
+  for them.
+- A new step for an existing screen gets the screen tag plus a new one (`"chat", "chat-3.0.21"`):
+  new users see the whole chat tour, users who saw `"chat"` only get the new step.
+- Use routes for info and free-roam steps that should auto-launch: without a target, only the route
+  ties them to a screen.
+- `TapTargetTour.allTags` lists every tag, `TapTargetTour.stepsWithTags(tags)` the steps
+  `start(tags)` would run (e.g. to decide whether to show a "What's new" dialog).
 
 ## Localization
 
@@ -494,7 +558,7 @@ rememberTapTargetController(
     onWrongTap = { index, position -> analytics.log("tour_wrong_tap", index) },
     onSkipped = { index -> analytics.log("tour_skipped", index) },
     onTargetMissing = { index, id -> log("Tour target $id not found") },
-    onFinished = { viewModel.onAction(AppAction.OnboardingFinished) },  // after the last step and on skip
+    onFinished = { seenTags -> viewModel.onAction(AppAction.TourSeen(seenTags)) },  // after the last step and on skip
     onError = { error -> log(error) },
 )
 ```
@@ -526,7 +590,8 @@ TourSettings(
     outlineWidth = 3.dp,                             // spotlight outline
     highlightOutlineWidth = 4.dp,                    // highlightStep outline
     skipMissingTargets = true,                       // skip steps whose target does not appear
-    targetTimeout = 2.seconds,                       // how long a step waits for its target
+    targetTimeout = 2.seconds,                       // how long a step with a route waits for its target
+    targetTimeoutWithoutRoute = 500.milliseconds,    // the same for a step without route
     autoScroll = true,                               // scroll targets to the middle of the screen
     passTapToTarget = false,                         // see "Letting the tap reach the target"
     wrongTapFeedback = WrongTapFeedback(),           // see "Wrong-tap feedback"
@@ -570,12 +635,17 @@ TapTargetHost(
 | `tapTargetTour { }`                 | function           | Builds a `TapTargetTour` with the `TourBuilder` DSL.                  |
 | `TourBuilder`                       | class              | DSL receiver with `tapStep`, `infoStep`, `freeRoamStep`.              |
 | `TapTargetTour`                     | class              | Immutable list of `TourStep`s.                                        |
+| `TapTargetTour.allTags`             | `Set<String>`      | Every tag used by a step.                                             |
+| `TapTargetTour.stepsWithTags(tags)` | function           | The steps `start(tags)` would run.                                    |
 | `TourStep`                          | class              | One step. Usually created by the DSL, not by hand.                    |
+| `TourStep.tags`                     | `Set<String>`      | Tags for `start(tags)` and auto-launch.                               |
 | `FreeRoamBarPosition`               | enum               | `Top`, `Center`, `Bottom`.                                            |
 | `DefaultTourBackgroundColor`        | `Color`            | Default scrim color.                                                  |
 | `rememberTapTargetController`       | `@Composable` fun  | Creates and remembers a controller; keeps progress across recreation. |
 | `TapTargetController`               | class              | Tour state and navigation. Members below.                             |
-| `TapTargetController.start()`       | function           | Resets to the first step and starts the tour.                         |
+| `TapTargetController.start()`       | function           | Resets to the first step and starts the tour with every step.         |
+| `TapTargetController.start(tags)`   | function           | Starts only the steps with one of the tags; `false` if none matches.  |
+| `TapTargetController.autoStartTags` | `Set<String>`      | Tags whose steps start by themselves on their screen.                 |
 | `TapTargetController.next()`        | function           | Goes to the next step; finishes the tour after the last one.          |
 | `TapTargetController.skip()`        | function           | Ends the tour at once and calls `onFinished`.                         |
 | `TapTargetController.isActive`      | `Boolean`          | `true` while the tour runs.                                           |
@@ -583,7 +653,7 @@ TapTargetHost(
 | `TapTargetController.currentStep`   | `TourStep?`        | The current step, or `null` when the tour does not run.               |
 | `TapTargetController.previous()`    | function           | Goes back one step.                                                   |
 | `TapTargetController.goTo(index)`   | function           | Jumps to a step and starts the tour if needed.                        |
-| `TapTargetController.stepCount`     | `Int`              | Number of steps.                                                      |
+| `TapTargetController.stepCount`     | `Int`              | Number of steps that run.                                             |
 | `TapTargetController.isBlocking`    | `Boolean`          | `true` while a step shows that blocks the app (not free-roam).        |
 | `TapTargetController.tourSettings`  | `TourSettings`     | Current settings, writable at runtime.                                |
 | `TapTargetHost`                     | `@Composable` fun  | Root of the tour: provides the controller and draws the overlay.      |
@@ -666,6 +736,9 @@ The demo shows every feature in one tour:
 9. Restart button that reads `LocalTapTargetController`.
 10. Goodbye info step, back on the Home tab.
 
+Steps 4, 7 and 8 carry the tag `"v2"`. The "Show only new steps" button in Settings runs only them
+with `start(tags = setOf("v2"))`, as an app would after an update.
+
 Rotate the Android device during the tour: the current step survives. The Settings tab has
 "Tour options" switches that change `TourSettings` while the tour runs (pass-through taps,
 wrong-tap feedback, circle spotlight, step progress, back behaviour, keeping the user on the
@@ -745,6 +818,9 @@ This section is a compact, rule-based summary for tools that add the library to 
 7. Add `Modifier.tapTarget(TargetIds.X)` to each targeted composable.
 8. Start the tour only when a persisted "seen" flag is false and `!controller.isActive`. Persist the
    flag in `onFinished`.
+9. For steps that should show once on their own screen (new features, unlocked UI): give them
+   `tags`, persist the `seenTags` from `onFinished` and pass `tour.allTags - seenTags` as
+   `autoStartTags` (an empty set until the stored tags are loaded).
 
 **Rules**
 
@@ -762,6 +838,7 @@ This section is a compact, rule-based summary for tools that add the library to 
 - Put user-facing step texts in string resources. Use the `StringResource` builder variants or
   `stringResource(...)` in slots.
 - Routes are compared by class by default. Pass `isMatchingRoute` if two screens share a class.
+- One tag per screen. Unlocked UI gets its own tag.
 
 **Public API in one block**
 
@@ -780,8 +857,10 @@ class TourBuilder {
 }
 // tapStep also takes: passTapToTarget: Boolean? = null, spotlightShape: SpotlightShape? = null, beforeShow: (suspend () -> Unit)? = null
 // infoStep and freeRoamStep also take: beforeShow: (suspend () -> Unit)? = null
-@Composable fun rememberTapTargetController(tour: TapTargetTour, onNavigateToRoute: suspend (Any) -> Unit = {}, currentRoute: () -> Any? = { null }, isMatchingRoute: (targetRoute: Any, activeRoute: Any) -> Boolean = { t, a -> t::class == a::class }, onFinished: () -> Unit = {}, tourSettings: TourSettings = TourSettings(), onStepShown: (index: Int, step: TourStep) -> Unit = { _, _ -> }, onSkipped: (index: Int) -> Unit = {}, onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> }, onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> }, onError: (Throwable) -> Unit = {}): TapTargetController
-class TapTargetController { fun start(); fun next(); fun previous(); fun goTo(index: Int); fun skip(); val isActive: Boolean; val isBlocking: Boolean; val currentIndex: Int; val stepCount: Int; val currentStep: TourStep?; var tourSettings: TourSettings }
+// every builder function also takes: tags: Set<String> = emptySet()
+class TapTargetTour(val steps: List<TourStep>) { val allTags: Set<String>; fun stepsWithTags(tags: Collection<String>): List<TourStep> }
+@Composable fun rememberTapTargetController(tour: TapTargetTour, onNavigateToRoute: suspend (Any) -> Unit = {}, currentRoute: () -> Any? = { null }, isMatchingRoute: (targetRoute: Any, activeRoute: Any) -> Boolean = { t, a -> t::class == a::class }, onFinished: (seenTags: Set<String>) -> Unit = {}, tourSettings: TourSettings = TourSettings(), onStepShown: (index: Int, step: TourStep) -> Unit = { _, _ -> }, onSkipped: (index: Int) -> Unit = {}, onWrongTap: (index: Int, position: Offset) -> Unit = { _, _ -> }, onTargetMissing: (index: Int, id: String) -> Unit = { _, _ -> }, onError: (Throwable) -> Unit = {}, autoStartTags: Set<String> = emptySet()): TapTargetController
+class TapTargetController { fun start(); fun start(tags: Collection<String>): Boolean; var autoStartTags: Set<String>; fun next(); fun previous(); fun goTo(index: Int); fun skip(); val isActive: Boolean; val isBlocking: Boolean; val currentIndex: Int; val stepCount: Int; val currentStep: TourStep?; var tourSettings: TourSettings }
 @Composable fun TapTargetHost(controller: TapTargetController, modifier: Modifier = Modifier, strings: TourStrings = TourStrings(), skipButton: (@Composable (onSkip: () -> Unit) -> Unit)? = null, continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)? = null, content: @Composable BoxScope.() -> Unit)
 fun Modifier.tapTarget(id: String): Modifier
 val LocalTapTargetController: ProvidableCompositionLocal<TapTargetController?>
