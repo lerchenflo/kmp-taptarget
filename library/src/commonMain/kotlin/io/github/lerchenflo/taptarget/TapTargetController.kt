@@ -148,11 +148,11 @@ class TapTargetController(
     // Targets registered by Modifier.tapTarget — keyed by step id.
     private val targets = mutableStateMapOf<String, TargetInfo>()
 
-    // Tour indices of the steps that run: all, the tagged ones of start(tags), or an auto-launch
-    private var runIndices: List<Int> = tour.steps.indices.toList()
+    // Tour indices of the steps that run: the full tour, the tagged ones of start(tags), or an auto-launch
+    private var runIndices: List<Int> = fullTourIndices()
 
     // The steps that run, in order. State, so the overlay sees a new run at the same index.
-    private var steps by mutableStateOf(tour.steps)
+    private var steps by mutableStateOf(runIndices.map { tour.steps[it] })
 
     // Tags onFinished may report for this run: all tags, the tags of start(tags), or the pending
     // tags an auto-launched run carries
@@ -167,8 +167,11 @@ class TapTargetController(
     // Tour indices shown, or skipped by the user, since the controller was created
     private val seenSteps = mutableSetOf<Int>()
 
-    // Tour indices of this run passed over because their target never appeared
+    // Tour indices of this run passed over: their target never appeared, or the step they depend on
+    // was passed over
     private val missedSteps = mutableSetOf<Int>()
+
+    private fun fullTourIndices(): List<Int> = tour.steps.indices.filter { tour.steps[it].inFullTour }
 
     /**
      * Zero-based index of the step that shows (or shows next), counted in the running steps
@@ -193,6 +196,20 @@ class TapTargetController(
      * not laid out yet (e.g. while the navigation to its screen runs).
      */
     val currentTarget: TargetInfo? get() = currentStep?.id?.let { targets[it] }
+
+    /** Name of the section of the current step ([TourBuilder.section]), or null. */
+    val currentSection: String? get() = currentStep?.section
+
+    /**
+     * True while the current step is in a section that has more steps after it in this run, so
+     * [skipSection] jumps over more than the current step. The `skipSectionButton` of
+     * [TapTargetHost] shows only then.
+     */
+    val canSkipSection: Boolean
+        get() {
+            val section = currentSection ?: return false
+            return steps.getOrNull(currentIndex + 1)?.section == section
+        }
 
     /** True while the tour runs and there are still steps left to show. */
     val isActive: Boolean get() = active && currentIndex < steps.size
@@ -234,12 +251,13 @@ class TapTargetController(
     // ── Starting and moving ──────────────────────────────────────
 
     /**
-     * Starts the tour at the first step and runs every step, e.g. from a "show tour" button.
+     * Starts the tour at the first step and runs every step except those in
+     * [TourBuilder.notInFullTour], e.g. from a "show tour" button.
      * A running or finished tour starts again from the beginning (without calling [onFinished]
      * for the replaced run). A tour without steps calls [onFinished] at once.
      */
     fun start() {
-        begin(tour.steps.indices.toList(), tour.allTags, auto = false)
+        begin(fullTourIndices(), tour.allTags, auto = false)
     }
 
     /**
@@ -319,6 +337,25 @@ class TapTargetController(
         movingForward = target >= currentIndex
         currentIndex = target
         active = true
+    }
+
+    /**
+     * Jumps over the rest of the current section ([TourBuilder.section]) to the first step after
+     * it; after the last section the tour finishes. The steps jumped over count as seen (the user
+     * chose to skip them). Does nothing when the current step is in no section.
+     * The `skipSectionButton` of [TapTargetHost] calls it.
+     */
+    fun skipSection() {
+        val section = currentSection ?: return
+        var end = currentIndex
+        while (end < steps.size && steps[end].section == section) end++
+        for (position in currentIndex until end) {
+            val index = runIndices[position]
+            if (index !in missedSteps) seenSteps += index
+        }
+        movingForward = true
+        currentIndex = end
+        if (currentIndex >= steps.size) finish()
     }
 
     /**
@@ -473,7 +510,7 @@ class TapTargetController(
         missedSteps: Collection<Int> = emptyList(),
     ) {
         val validRun = runIndices?.takeIf { run -> run.all { it in tour.steps.indices } }
-        useRun(validRun ?: tour.steps.indices.toList())
+        useRun(validRun ?: fullTourIndices())
         this.candidateTags = if (validRun != null) candidateTags ?: tour.allTags else tour.allTags
         this.autoRun = validRun != null && autoRun
         autoRunRoute = null
@@ -532,7 +569,8 @@ class TapTargetController(
         if (targets.containsKey(id)) return true
 
         // Without a route the target should already be on the open screen, so give up sooner
-        val timeout = if (route == null) tourSettings.targetTimeoutWithoutRoute else tourSettings.targetTimeout
+        val timeout = step.targetTimeout
+            ?: if (route == null) tourSettings.targetTimeoutWithoutRoute else tourSettings.targetTimeout
         withTimeoutOrNull(timeout) {
             while (!targets.containsKey(id)) delay(16.milliseconds)
         }
@@ -564,17 +602,37 @@ class TapTargetController(
         }
     }
 
+    /**
+     * Overlay: passes the current step over at once, without navigation or waiting, when the step
+     * it depends on ([TourStep.dependsOn]) was passed over in this run. Moves in the direction of
+     * the last move, like a missing target.
+     *
+     * @return True when the step was passed over.
+     */
+    internal fun passOverDependentStep(): Boolean {
+        if (!isActive) return false
+        val index = runIndices.getOrNull(currentIndex) ?: return false
+        val dependency = tour.dependencyIndex[index] ?: return false
+        if (dependency !in missedSteps) return false
+        missedSteps += index
+        if (movingForward || currentIndex == 0) next() else previous()
+        return true
+    }
+
     /** Overlay: the current step is on screen. */
     internal fun notifyStepShown() {
         val step = currentStep ?: return
-        runIndices.getOrNull(currentIndex)?.let { seenSteps += it }
+        runIndices.getOrNull(currentIndex)?.let { index ->
+            seenSteps += index
+            missedSteps -= index
+        }
         safely(Unit) { onStepShown(currentIndex, step) }
     }
 
     /** Overlay: the current step's target never appeared. Skips it in the direction of the last move. */
     internal fun handleMissingTarget() {
         val id = currentStep?.id ?: return
-        runIndices.getOrNull(currentIndex)?.let { if (it !in seenSteps) missedSteps += it }
+        runIndices.getOrNull(currentIndex)?.let { missedSteps += it }
         safely(Unit) { onTargetMissing(currentIndex, id) }
         if (!tourSettings.skipMissingTargets) return
         if (movingForward || currentIndex == 0) next() else previous()

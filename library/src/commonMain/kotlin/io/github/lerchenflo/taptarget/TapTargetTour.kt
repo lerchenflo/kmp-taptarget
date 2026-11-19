@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+import kotlin.time.Duration
 
 // ─────────────────────────────────────────────────────────────────
 // Tour DSL
@@ -66,6 +67,22 @@ val DefaultTourBackgroundColor: Color = Color.Black.copy(alpha = 0.65f)
  *                            ([TapTargetController.autoStartTags]), e.g. "chat" or "chat-3.0.21".
  *                            The library gives them no meaning. Use one tag per screen. Empty (the
  *                            default): the step only runs in a full [TapTargetController.start].
+ * @param dependsOn           Id of an earlier tap or highlight step this step needs, e.g. the step
+ *                            that opens the screen of this one. When that step is part of the run
+ *                            and was passed over (its target never appeared, or it was passed over
+ *                            for its own [dependsOn]), this step is passed over at once: no
+ *                            navigation, no waiting, and it stays unseen, so it can auto-launch
+ *                            later on its own screen. Chains work. Ignored when that step is not
+ *                            part of the run (`start(tags)`, auto-launch) or was shown.
+ * @param targetTimeout       How long this step waits for its target. [Duration.ZERO]: no waiting,
+ *                            the target must already be on screen. Null (the default):
+ *                            [TourSettings.targetTimeout], or [TourSettings.targetTimeoutWithoutRoute]
+ *                            for a step without route.
+ * @param inFullTour          False: a full [TapTargetController.start] leaves the step out; it only
+ *                            runs through `start(tags)` and auto-launch. See [TourBuilder.notInFullTour].
+ * @param section             Name of the section the step belongs to ([TourBuilder.section]), or null.
+ *                            Consecutive steps with the same name form one section, which the user
+ *                            can jump over with [TapTargetController.skipSection].
  * @param content             Content of the info bubble, see [TourStepContent]. Null: the bubble
  *                            shows only the tap hint (or nothing).
  */
@@ -81,6 +98,10 @@ class TourStep(
     val beforeShow: (suspend () -> Unit)? = null,
     val highlightOnly: Boolean = false,
     val tags: Set<String> = emptySet(),
+    val dependsOn: String? = null,
+    val targetTimeout: Duration? = null,
+    val inFullTour: Boolean = true,
+    val section: String? = null,
     val content: TourStepContent? = null,
 )
 
@@ -115,6 +136,11 @@ class TapTargetTour(val steps: List<TourStep>) {
      */
     val allTags: Set<String> = steps.flatMapTo(LinkedHashSet()) { it.tags }
 
+    /** For each step, the index of the closest earlier step its [TourStep.dependsOn] names, or null. */
+    internal val dependencyIndex: List<Int?> = steps.mapIndexed { index, step ->
+        step.dependsOn?.let { id -> (index - 1 downTo 0).firstOrNull { steps[it].id == id } }
+    }
+
     /**
      * The steps `start(tags)` ([TapTargetController.start]) would run: every step with at least
      * one of [tags] in its [TourStep.tags], in tour order. Steps without tags are never part of
@@ -146,6 +172,65 @@ class TourBuilder {
     /** The steps added so far, in order. Add a custom [TourStep] here for full control. */
     val steps = mutableListOf<TourStep>()
 
+    // False inside notInFullTour { }
+    private var inFullTour = true
+
+    // Name of the enclosing section { } block
+    private var currentSection: String? = null
+
+    /**
+     * Adds the steps of [builder] at this position as one section named [name]. While a step of a
+     * section shows, the user can jump to the first step after the section
+     * ([TapTargetController.skipSection], the `skipSectionButton` slot of [TapTargetHost]); the
+     * steps jumped over count as seen. Steps outside any section are not skippable this way.
+     *
+     * ```kotlin
+     * section("map") {
+     *     tapStep("map_tab", route = Route.Map) { ... }
+     *     highlightStep("map_filter") { ... }
+     * }
+     * ```
+     *
+     * @param name     Name of the section ([TourStep.section]). Two sections in a row with the same
+     *                 name count as one.
+     * @param builder  Adds the steps, like the [tapTargetTour] lambda. A nested section replaces the
+     *                 outer one for its steps.
+     */
+    fun section(name: String, builder: TourBuilder.() -> Unit) {
+        val outer = currentSection
+        currentSection = name
+        try {
+            builder()
+        } finally {
+            currentSection = outer
+        }
+    }
+
+    /**
+     * Adds the steps of [builder] at this position, but a full [TapTargetController.start] leaves
+     * them out ([TourStep.inFullTour] = false). They only run through `start(tags)` and auto-launch
+     * ([TapTargetController.autoStartTags]), e.g. for a screen the full tour cannot reach. Their
+     * tags are part of [TapTargetTour.allTags]; a full start neither shows them nor reports their
+     * tags as seen.
+     *
+     * ```kotlin
+     * notInFullTour {
+     *     highlightStep("group_members", route = Route.GroupDetails, tags = setOf("group-details")) { ... }
+     * }
+     * ```
+     *
+     * @param builder  Adds the steps, like the [tapTargetTour] lambda.
+     */
+    fun notInFullTour(builder: TourBuilder.() -> Unit) {
+        val outer = inFullTour
+        inFullTour = false
+        try {
+            builder()
+        } finally {
+            inFullTour = outer
+        }
+    }
+
     /**
      * Adds a step that spotlights the composable registered with [tapTarget] ([id]) and waits for
      * a tap on it. The rest of the screen is dimmed and blocked.
@@ -173,6 +258,11 @@ class TourBuilder {
      * @param tags             Free strings that pick this step for `start(tags)` and for
      *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
      *                         (the default): only a full start runs it.
+     * @param dependsOn        Id of an earlier tap or highlight step this step needs. When that
+     *                         step was passed over in this run, this step is passed over at once
+     *                         and stays unseen. See [TourStep.dependsOn].
+     * @param targetTimeout    How long this step waits for its target. [Duration.ZERO]: no waiting.
+     *                         Null (the default): the [TourSettings] timeouts.
      * @param content          Content of the bubble next to the spotlight. Use [TourTitle] and
      *                         [TourDescription] for the default text styles.
      */
@@ -185,6 +275,8 @@ class TourBuilder {
         spotlightShape: SpotlightShape? = null,
         beforeShow: (suspend () -> Unit)? = null,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
+        targetTimeout: Duration? = null,
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -196,6 +288,10 @@ class TourBuilder {
             spotlightShape = spotlightShape,
             beforeShow = beforeShow,
             tags = tags,
+            dependsOn = dependsOn,
+            targetTimeout = targetTimeout,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = content,
         )
     }
@@ -228,6 +324,11 @@ class TourBuilder {
      * @param tags             Free strings that pick this step for `start(tags)` and for
      *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
      *                         (the default): only a full start runs it.
+     * @param dependsOn        Id of an earlier tap or highlight step this step needs. When that
+     *                         step was passed over in this run, this step is passed over at once
+     *                         and stays unseen. See [TourStep.dependsOn].
+     * @param targetTimeout    How long this step waits for its target. [Duration.ZERO]: no waiting.
+     *                         Null (the default): the [TourSettings] timeouts.
      */
     fun tapStep(
         id: String,
@@ -241,6 +342,8 @@ class TourBuilder {
         // Not a function type as last parameter, so a trailing lambda always picks the slot variant
         spotlightShape: SpotlightShape? = null,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
+        targetTimeout: Duration? = null,
     ) {
         steps += TourStep(
             id = id,
@@ -251,6 +354,10 @@ class TourBuilder {
             spotlightShape = spotlightShape,
             beforeShow = beforeShow,
             tags = tags,
+            dependsOn = dependsOn,
+            targetTimeout = targetTimeout,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = resourceContent(title, description),
         )
     }
@@ -275,6 +382,11 @@ class TourBuilder {
      * @param tags             Free strings that pick this step for `start(tags)` and for
      *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
      *                         (the default): only a full start runs it.
+     * @param dependsOn        Id of an earlier tap or highlight step this step needs. When that
+     *                         step was passed over in this run, this step is passed over at once
+     *                         and stays unseen. See [TourStep.dependsOn].
+     * @param targetTimeout    How long this step waits for its target. [Duration.ZERO]: no waiting.
+     *                         Null (the default): the [TourSettings] timeouts.
      * @param content          Content of the bubble, shown next to an info icon. Use [TourTitle] and
      *                         [TourDescription] for the default text styles.
      */
@@ -286,6 +398,8 @@ class TourBuilder {
         buttonText: String? = null,
         beforeShow: (suspend () -> Unit)? = null,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
+        targetTimeout: Duration? = null,
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -298,6 +412,10 @@ class TourBuilder {
             beforeShow = beforeShow,
             highlightOnly = true,
             tags = tags,
+            dependsOn = dependsOn,
+            targetTimeout = targetTimeout,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = content,
         )
     }
@@ -324,6 +442,11 @@ class TourBuilder {
      * @param tags             Free strings that pick this step for `start(tags)` and for
      *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
      *                         (the default): only a full start runs it.
+     * @param dependsOn        Id of an earlier tap or highlight step this step needs. When that
+     *                         step was passed over in this run, this step is passed over at once
+     *                         and stays unseen. See [TourStep.dependsOn].
+     * @param targetTimeout    How long this step waits for its target. [Duration.ZERO]: no waiting.
+     *                         Null (the default): the [TourSettings] timeouts.
      */
     fun highlightStep(
         id: String,
@@ -336,6 +459,8 @@ class TourBuilder {
         // Not a function type as last parameter, so a trailing lambda always picks the slot variant
         spotlightShape: SpotlightShape? = null,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
+        targetTimeout: Duration? = null,
     ) {
         steps += TourStep(
             id = id,
@@ -347,6 +472,10 @@ class TourBuilder {
             beforeShow = beforeShow,
             highlightOnly = true,
             tags = tags,
+            dependsOn = dependsOn,
+            targetTimeout = targetTimeout,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = resourceContent(title, description),
         )
     }
@@ -362,6 +491,9 @@ class TourBuilder {
      * @param tags             Free strings that pick this step for `start(tags)` and for
      *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
      *                         (the default): only a full start runs it.
+     * @param dependsOn        Id of an earlier tap or highlight step this step needs. When that
+     *                         step was passed over in this run, this step is passed over at once
+     *                         and stays unseen. See [TourStep.dependsOn].
      * @param content          Content of the centered card. Use [TourTitle] and [TourDescription]
      *                         for the default text styles.
      */
@@ -370,6 +502,7 @@ class TourBuilder {
         backgroundColor: Color = Color.Unspecified,
         beforeShow: (suspend () -> Unit)? = null,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -378,6 +511,9 @@ class TourBuilder {
             backgroundColor = backgroundColor,
             beforeShow = beforeShow,
             tags = tags,
+            dependsOn = dependsOn,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = content,
         )
     }
@@ -397,6 +533,9 @@ class TourBuilder {
      * @param tags             Free strings that pick this step for `start(tags)` and for
      *                         auto-launch ([TapTargetController.autoStartTags]), e.g. "chat". Empty
      *                         (the default): only a full start runs it.
+     * @param dependsOn        Id of an earlier tap or highlight step this step needs. When that
+     *                         step was passed over in this run, this step is passed over at once
+     *                         and stays unseen. See [TourStep.dependsOn].
      */
     fun infoStep(
         title: StringResource? = null,
@@ -405,6 +544,7 @@ class TourBuilder {
         beforeShow: (suspend () -> Unit)? = null,
         backgroundColor: Color = Color.Unspecified,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
     ) {
         steps += TourStep(
             id = null,
@@ -412,6 +552,9 @@ class TourBuilder {
             backgroundColor = backgroundColor,
             beforeShow = beforeShow,
             tags = tags,
+            dependsOn = dependsOn,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = resourceContent(title, description),
         )
     }
@@ -432,6 +575,9 @@ class TourBuilder {
      * @param tags                Free strings that pick this step for `start(tags)` and for
      *                            auto-launch ([TapTargetController.autoStartTags]), e.g. "chat".
      *                            Empty (the default): only a full start runs it.
+     * @param dependsOn           Id of an earlier tap or highlight step this step needs. When that
+     *                            step was passed over in this run, this step is passed over at once
+     *                            and stays unseen. See [TourStep.dependsOn].
      * @param content             Content of the bar, above the Continue button. Use [TourTitle] and
      *                            [TourDescription] for the default text styles.
      */
@@ -441,6 +587,7 @@ class TourBuilder {
         continueButtonText: String? = null,
         beforeShow: (suspend () -> Unit)? = null,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
         content: TourStepContent,
     ) {
         steps += TourStep(
@@ -450,6 +597,9 @@ class TourBuilder {
             continueButtonText = continueButtonText?.let { text -> { text } },
             beforeShow = beforeShow,
             tags = tags,
+            dependsOn = dependsOn,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = content,
         )
     }
@@ -472,6 +622,9 @@ class TourBuilder {
      * @param tags                Free strings that pick this step for `start(tags)` and for
      *                            auto-launch ([TapTargetController.autoStartTags]), e.g. "chat".
      *                            Empty (the default): only a full start runs it.
+     * @param dependsOn           Id of an earlier tap or highlight step this step needs. When that
+     *                            step was passed over in this run, this step is passed over at once
+     *                            and stays unseen. See [TourStep.dependsOn].
      */
     fun freeRoamStep(
         title: StringResource? = null,
@@ -481,6 +634,7 @@ class TourBuilder {
         beforeShow: (suspend () -> Unit)? = null,
         continueButtonText: StringResource? = null,
         tags: Set<String> = emptySet(),
+        dependsOn: String? = null,
     ) {
         steps += TourStep(
             id = null,
@@ -489,6 +643,9 @@ class TourBuilder {
             continueButtonText = continueButtonText?.let { res -> { stringResource(res) } },
             beforeShow = beforeShow,
             tags = tags,
+            dependsOn = dependsOn,
+            inFullTour = inFullTour,
+            section = currentSection,
             content = resourceContent(title, description),
         )
     }

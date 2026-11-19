@@ -168,6 +168,11 @@ fun TourDescription(text: String, modifier: Modifier = Modifier, textAlign: Text
  * @param skipButton      Skip button, shown on every step in a corner of the screen half away from
  *                        the spotlight. It gets `onSkip`, which ends the tour. Use [TourSkipButton]
  *                        for the default look. Null (the default) shows no skip button.
+ * @param skipSectionButton  Button that jumps over the rest of the current section
+ *                        ([TourBuilder.section], [TapTargetController.skipSection]). Shown next to
+ *                        the skip button, only while the current section has more steps after this
+ *                        one. It gets `onSkipSection`. Use [TourSkipSectionButton] for the default
+ *                        look. Null (the default) shows no such button.
  * @param continueButton  Replaces the button of free-roam steps ("Continue") and highlight steps
  *                        ("Got it"). It gets the button label and `onContinue`, which goes to the
  *                        next step. Null (the default): a material3 [Button] on free-roam steps, a
@@ -179,6 +184,7 @@ fun TapTargetOverlay(
     strings: TourStrings = TourStrings(),
     skipButton: (@Composable (onSkip: () -> Unit) -> Unit)? = null,
     continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)? = null,
+    skipSectionButton: (@Composable (onSkipSection: () -> Unit) -> Unit)? = null,
 ) {
     // Composed before the early return, so the handler stays registered across steps
     TourBackHandler(controller)
@@ -191,6 +197,7 @@ fun TapTargetOverlay(
     // Keyed on the step too: a filtered start can swap the step behind the same index
     LaunchedEffect(controller.currentIndex, controller.currentStep) {
         //Effect gets cancelled when the step changes meanwhile, so this only handles the stuck step
+        if (controller.passOverDependentStep()) return@LaunchedEffect
         if (controller.ensureCurrentStepVisible()) {
             controller.notifyStepShown()
             controller.watchFreeRoamLeave()
@@ -226,21 +233,46 @@ fun TapTargetOverlay(
     ) {
         TourStepLayer(controller, step, strings, continueButton)
 
-        if (skipButton != null) {
+        val sectionButton = skipSectionButton?.takeIf { controller.canSkipSection }
+        if (skipButton != null || sectionButton != null) {
             val target = controller.currentTarget
-            //Spotlight steps show the button only once the spotlight itself is drawn
+            //Spotlight steps show the buttons only once the spotlight itself is drawn
             if (step.id == null || step.freeRoamPosition != null || target != null) {
                 val screenHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
-                Box(
+                Row(
                     modifier = Modifier
                         .align(skipButtonAlignment(step, target, screenHeightPx))
                         .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .padding(8.dp)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    skipButton { controller.skip() }
+                    sectionButton?.invoke { controller.skipSection() }
+                    skipButton?.invoke { controller.skip() }
                 }
             }
         }
+    }
+}
+
+/**
+ * Default button for the `skipSectionButton` slot of [TapTargetHost]:
+ *
+ * ```kotlin
+ * TapTargetHost(
+ *     controller = controller,
+ *     skipSectionButton = { onSkipSection -> TourSkipSectionButton(stringResource(Res.string.next_section), onSkipSection) }
+ * ) { ... }
+ * ```
+ *
+ * @param text           Button label, e.g. a localized "Next section".
+ * @param onSkipSection  The `onSkipSection` the slot gets; it jumps to the next section.
+ * @param modifier       Applied to the [FilledTonalButton].
+ */
+@Composable
+fun TourSkipSectionButton(text: String, onSkipSection: () -> Unit, modifier: Modifier = Modifier) {
+    FilledTonalButton(onClick = onSkipSection, modifier = modifier) {
+        Text(text)
     }
 }
 
@@ -756,6 +788,9 @@ private fun Modifier.tourStepSemantics(controller: TapTargetController, strings:
             add(CustomAccessibilityAction(strings.continueButton) { controller.next(); true })
             if (controller.currentIndex > 0) {
                 add(CustomAccessibilityAction(strings.previousStep) { controller.previous(); true })
+            }
+            if (controller.canSkipSection) {
+                add(CustomAccessibilityAction(strings.skipSection) { controller.skipSection(); true })
             }
             add(CustomAccessibilityAction(strings.skipTour) { controller.skip(); true })
         }

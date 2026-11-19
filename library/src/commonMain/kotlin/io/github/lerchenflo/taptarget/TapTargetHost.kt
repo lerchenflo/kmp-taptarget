@@ -37,6 +37,11 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
  *                        next step. Null (the default): a material3 [androidx.compose.material3.Button]
  *                        on free-roam steps, a [androidx.compose.material3.FilledTonalButton] on
  *                        highlight steps.
+ * @param skipSectionButton  Button that jumps over the rest of the current section
+ *                        ([TourBuilder.section], [TapTargetController.skipSection]). Shown next to
+ *                        the skip button, only while the current section has more steps after this
+ *                        one. It gets `onSkipSection`. Use [TourSkipSectionButton] for the default
+ *                        look. Null (the default) shows no such button.
  * @param content         The app, usually the navigation host. Placed in a full-size [Box] below
  *                        the overlay.
  */
@@ -47,6 +52,7 @@ fun TapTargetHost(
     strings: TourStrings = TourStrings(),
     skipButton: (@Composable (onSkip: () -> Unit) -> Unit)? = null,
     continueButton: (@Composable (text: String, onContinue: () -> Unit) -> Unit)? = null,
+    skipSectionButton: (@Composable (onSkipSection: () -> Unit) -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val hideContent = controller.tourSettings.hideAppFromScreenReader && controller.isBlocking
@@ -65,6 +71,7 @@ fun TapTargetHost(
                 strings = strings,
                 skipButton = skipButton,
                 continueButton = continueButton,
+                skipSectionButton = skipSectionButton,
             )
         }
     }

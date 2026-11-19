@@ -42,7 +42,8 @@ const val TOUR_ITEM_ID = 3
 const val FAR_ITEM_INDEX = 24
 
 /**
- * One step per library feature, in the order a user meets them.
+ * One step per library feature, in the order a user meets them. Two sections ("Home list",
+ * "Settings") show the "Next section" button.
  * [homeListState] is the state of the Home list, so a step can scroll it before it shows.
  */
 fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
@@ -51,36 +52,38 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
         TourDescription("This demo shows every feature of kmp-taptarget. Follow the steps or skip the tour at any time.")
     }
 
-    tapStep(id = ExampleTargets.ADD_BUTTON, route = ExampleRoute.Home) {
-        TourTitle("Spotlight step")
-        TourDescription("Only a tap on the highlighted button continues. The tap does not reach the button itself.")
-    }
+    section("Home list") {
+        tapStep(id = ExampleTargets.ADD_BUTTON, route = ExampleRoute.Home) {
+            TourTitle("Spotlight step")
+            TourDescription("Only a tap on the highlighted button continues. The tap does not reach the button itself.")
+        }
 
-    highlightStep(
-        id = ExampleTargets.FIRST_ITEM,
-        route = ExampleRoute.Home,
-        // After a restart the list may still be scrolled down, where the first item is not composed
-        beforeShow = { homeListState.scrollToItem(0) },
-    ) {
-        TourTitle("Highlight step")
-        TourDescription(
-            "Only points at something the user should know about, like this list. A tap on it does " +
-                "nothing: press Got it or tap anywhere else."
-        )
-    }
+        highlightStep(
+            id = ExampleTargets.FIRST_ITEM,
+            route = ExampleRoute.Home,
+            // After a restart the list may still be scrolled down, where the first item is not composed
+            beforeShow = { homeListState.scrollToItem(0) },
+        ) {
+            TourTitle("Highlight step")
+            TourDescription(
+                "Only points at something the user should know about, like this list. A tap on it does " +
+                    "nothing: press Got it or tap anywhere else."
+            )
+        }
 
-    tapStep(
-        id = ExampleTargets.FAR_ITEM,
-        route = ExampleRoute.Home,
-        // Lazy list items off screen are not composed, so scroll there before the step waits
-        beforeShow = { homeListState.animateScrollToItem(FAR_ITEM_INDEX - 2) },
-        tags = setOf(NEW_STEPS_TAG),
-    ) {
-        TourTitle("Wrong-tap feedback")
-        TourDescription(
-            "This item was off screen, beforeShow scrolled the list here. Tap next to it to see " +
-                "the feedback, tap three times to get the guide hand."
-        )
+        tapStep(
+            id = ExampleTargets.FAR_ITEM,
+            route = ExampleRoute.Home,
+            // Lazy list items off screen are not composed, so scroll there before the step waits
+            beforeShow = { homeListState.animateScrollToItem(FAR_ITEM_INDEX - 2) },
+            tags = setOf(NEW_STEPS_TAG),
+        ) {
+            TourTitle("Wrong-tap feedback")
+            TourDescription(
+                "This item was off screen, beforeShow scrolled the list here. Tap next to it to see " +
+                    "the feedback, tap three times to get the guide hand."
+            )
+        }
     }
 
     tapStep(
@@ -106,25 +109,27 @@ fun exampleTour(homeListState: LazyListState): TapTargetTour = tapTargetTour {
         }
     }
 
-    tapStep(
-        id = ExampleTargets.APPEARANCE_ENTRY,
-        route = ExampleRoute.Settings,
-        // The real tap opens the Appearance screen, the tour follows
-        passTapToTarget = true,
-        tags = setOf(NEW_STEPS_TAG),
-    ) {
-        TourTitle("Pass-through tap")
-        TourDescription("The tour switched to the Settings tab. Your tap on Appearance really opens it.")
-    }
+    section("Settings") {
+        tapStep(
+            id = ExampleTargets.APPEARANCE_ENTRY,
+            route = ExampleRoute.Settings,
+            // The real tap opens the Appearance screen, the tour follows
+            passTapToTarget = true,
+            tags = setOf(NEW_STEPS_TAG),
+        ) {
+            TourTitle("Pass-through tap")
+            TourDescription("The tour switched to the Settings tab. Your tap on Appearance really opens it.")
+        }
 
-    freeRoamStep(route = ExampleRoute.Appearance, position = FreeRoamBarPosition.Bottom, tags = setOf(NEW_STEPS_TAG)) {
-        TourTitle("Free roam")
-        TourDescription("The app stays usable. Try the dark mode switch, then press Continue.")
-    }
+        freeRoamStep(route = ExampleRoute.Appearance, position = FreeRoamBarPosition.Bottom, tags = setOf(NEW_STEPS_TAG)) {
+            TourTitle("Free roam")
+            TourDescription("The app stays usable. Try the dark mode switch, then press Continue.")
+        }
 
-    tapStep(id = ExampleTargets.RESTART_BUTTON, route = ExampleRoute.Settings, requireExactTap = false) {
-        TourTitle("Restart the tour")
-        TourDescription("This button calls start() on the controller from LocalTapTargetController.")
+        tapStep(id = ExampleTargets.RESTART_BUTTON, route = ExampleRoute.Settings, requireExactTap = false) {
+            TourTitle("Restart the tour")
+            TourDescription("This button calls start() on the controller from LocalTapTargetController.")
+        }
     }
 
     infoStep(route = ExampleRoute.Home) {

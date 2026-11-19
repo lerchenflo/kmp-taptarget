@@ -197,3 +197,14 @@ shows everything. Breaking changes allowed; release as 1.1.0 after the user test
 - [x] Tests (`TapTargetTagsTest`), demo button "Show only new steps", README section.
 - [x] User skipped the local test ("dont test just push").
 - [x] Release 1.1.0 (changelog, install version, tag, JitPack), send the version to SchneaggchatV3.
+
+## 17. Dependent steps, steps outside the full tour, per-step timeout, sections (SchneaggchatV3 + user, 2026-11-19)
+
+- [x] `dependsOn` (target id of an earlier step, chains allowed): passed over at once when that step
+  was passed over in the run, stays unseen; ignored when that step is not in the run or was shown.
+  User: only the "passed over" case; Skip tour still counts as seen.
+- [x] `notInFullTour { }` block: `start()` leaves those steps out.
+- [x] `targetTimeout` per tap / highlight step (`Duration.ZERO` = no wait).
+- [x] `section(name) { }`, `skipSection()`, `canSkipSection`, `skipSectionButton` slot,
+  `TourSkipSectionButton`, `TourStrings.skipSection`; skipped steps count as seen.
+- [x] Tests (`TapTargetSectionsTest`), demo sections, README, release 1.2.0.

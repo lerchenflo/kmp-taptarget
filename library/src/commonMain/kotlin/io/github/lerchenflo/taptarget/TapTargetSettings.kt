@@ -29,6 +29,8 @@ import kotlin.time.Duration.Companion.seconds
  *                           one-based number of the current step and the step count, e.g.
  *                           `{ current, total -> "Step $current of $total" }`.
  * @param gotIt              Button of [TourBuilder.highlightStep] steps (a step can override it).
+ * @param skipSection        Screen reader action that jumps over the rest of the current section
+ *                           ([TapTargetController.skipSection]).
  */
 @Immutable
 data class TourStrings(
@@ -40,6 +42,7 @@ data class TourStrings(
     val highlightedTarget: String = "Highlighted element",
     val stepProgress: (current: Int, total: Int) -> String = { current, total -> "$current / $total" },
     val gotIt: String = "Got it",
+    val skipSection: String = "Skip section",
 )
 
 /** Shape of the hole the spotlight cuts around a target. */
