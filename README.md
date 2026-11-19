@@ -116,12 +116,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.4`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.1.0`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-taptarget/tags):
 
 ```toml
 [versions]
-kmpTaptarget = "1.0.4"
+kmpTaptarget = "1.1.0"
 
 [libraries]
 kmp-taptarget = { module = "com.github.lerchenflo.kmp-taptarget:kmp-taptarget", version.ref = "kmpTaptarget" }
@@ -878,6 +878,27 @@ enum class FreeRoamBarPosition { Top, Center, Bottom }
 ```
 
 ## Changelog
+
+### 1.1.0
+- **Tags**: every step builder and `TourStep` take `tags: Set<String>`. `TapTargetTour.allTags` and
+  `TapTargetTour.stepsWithTags(tags)` list them.
+- `TapTargetController.start(tags)` runs only the steps with one of the tags and returns `false`
+  when none matches (the tour does not show, `onFinished` is called at once).
+- **Auto-launch**: `autoStartTags` (parameter of `rememberTapTargetController` and controller
+  property). Pending steps of the open screen start by themselves once their target is stable;
+  the run never navigates and ends when the screen changes. See
+  [Tags](#tags-new-steps-and-auto-launch).
+- `TourSettings.targetTimeoutWithoutRoute` (default 500 ms): a step without route gives up on a
+  missing target sooner.
+- The saved state also keeps which steps run and which were seen.
+- **Breaking**: `onFinished` is now `(seenTags: Set<String>) -> Unit`. Lambdas like
+  `onFinished = { save() }` still compile; function references and direct
+  `TapTargetController(...)` calls need the parameter. `start()` on a tour without steps now calls
+  `onFinished` at once.
+- **Breaking**: `TourSettings` has a new field after `targetTimeout`; positional constructor calls
+  need an update (named arguments are fine).
+- `stepCount`, `currentIndex`, `goTo()`, the progress text and the `onStepShown` / `onSkipped`
+  indexes count only the steps that run.
 
 ### 1.0.4
 - Publishes the sources jars again, so the IDE shows the KDoc on hover instead of decompiled

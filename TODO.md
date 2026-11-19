@@ -195,5 +195,5 @@ shows everything. Breaking changes allowed; release as 1.1.0 after the user test
 - [x] `TourSettings.targetTimeoutWithoutRoute = 500.milliseconds`.
 - [x] Saved state keeps the running steps and the seen steps.
 - [x] Tests (`TapTargetTagsTest`), demo button "Show only new steps", README section.
-- [ ] User tests the demo locally.
-- [ ] Release 1.1.0 (changelog, install version, tag, JitPack), send the version to SchneaggchatV3.
+- [x] User skipped the local test ("dont test just push").
+- [x] Release 1.1.0 (changelog, install version, tag, JitPack), send the version to SchneaggchatV3.
